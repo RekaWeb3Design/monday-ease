@@ -72,14 +72,11 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
         throw new Error("Organization or user not available");
       }
 
-      // Generate a placeholder UUID for the invited user
-      const placeholderUserId = crypto.randomUUID();
-
       const { error: insertError } = await supabase
         .from("organization_members")
         .insert({
           organization_id: organization.id,
-          user_id: placeholderUserId,
+          user_id: null,
           email: email.toLowerCase().trim(),
           display_name: displayName.trim(),
           role: "member",

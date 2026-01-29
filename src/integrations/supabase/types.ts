@@ -24,7 +24,7 @@ export type Database = {
           organization_id: string
           role: string
           status: string
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           display_name?: string | null
@@ -35,7 +35,7 @@ export type Database = {
           organization_id: string
           role?: string
           status?: string
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           display_name?: string | null
@@ -46,7 +46,7 @@ export type Database = {
           organization_id?: string
           role?: string
           status?: string
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: [
           {
