@@ -1,9 +1,9 @@
 
 
-## Fix Monday OAuth Scope Parameter Format
+## Fix Monday OAuth Scope Parameter Name
 
 ### Overview
-Update the Monday.com OAuth scopes parameter from space-separated to comma-separated format, as required by the Monday.com API.
+Update the Monday.com OAuth parameter name from `scopes` (plural) to `scope` (singular), as required by the Monday.com OAuth API specification.
 
 ---
 
@@ -11,7 +11,7 @@ Update the Monday.com OAuth scopes parameter from space-separated to comma-separ
 
 | File | Change |
 |------|--------|
-| `src/hooks/useMondayOAuth.ts` | Fix scopes format on line 30 |
+| `src/hooks/useMondayOAuth.ts` | Rename `scopes` to `scope` on line 30 |
 
 ---
 
@@ -19,16 +19,16 @@ Update the Monday.com OAuth scopes parameter from space-separated to comma-separ
 
 **Current code (line 30):**
 ```typescript
-scopes: 'boards:read boards:write',
+scopes: 'boards:read,boards:write',
 ```
 
 **Updated code:**
 ```typescript
-scopes: 'boards:read,boards:write',
+scope: 'boards:read,boards:write',
 ```
 
 ---
 
 ### Why This Matters
-Monday.com's OAuth API requires scopes to be comma-separated without spaces. The current space-separated format may cause authorization failures or incorrect scope parsing.
+Monday.com's OAuth API expects the parameter to be named `scope` (singular). Using `scopes` (plural) will cause the authorization request to fail or not request the proper permissions.
 
