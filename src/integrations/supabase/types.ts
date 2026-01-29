@@ -14,6 +14,86 @@ export type Database = {
   }
   public: {
     Tables: {
+      organization_members: {
+        Row: {
+          display_name: string | null
+          email: string
+          id: string
+          invited_at: string | null
+          joined_at: string | null
+          organization_id: string
+          role: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          display_name?: string | null
+          email: string
+          id?: string
+          invited_at?: string | null
+          joined_at?: string | null
+          organization_id: string
+          role?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          display_name?: string | null
+          email?: string
+          id?: string
+          invited_at?: string | null
+          joined_at?: string | null
+          organization_id?: string
+          role?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          created_at: string | null
+          id: string
+          max_members: number | null
+          monday_workspace_id: string | null
+          name: string
+          owner_id: string
+          settings: Json | null
+          slug: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          max_members?: number | null
+          monday_workspace_id?: string | null
+          name: string
+          owner_id: string
+          settings?: Json | null
+          slug: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          max_members?: number | null
+          monday_workspace_id?: string | null
+          name?: string
+          owner_id?: string
+          settings?: Json | null
+          slug?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       user_profiles: {
         Row: {
           avatar_url: string | null
