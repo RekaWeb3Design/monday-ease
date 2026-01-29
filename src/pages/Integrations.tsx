@@ -1,5 +1,10 @@
+import { useEffect } from "react";
 import { format } from "date-fns";
+import { useSearchParams } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 import { useIntegration } from "@/hooks/useIntegration";
+import { useMondayOAuth } from "@/hooks/useMondayOAuth";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +25,34 @@ function NotionIcon({ className }: { className?: string }) {
 }
 
 export default function Integrations() {
-  const { integration, isLoading, isConnected } = useIntegration();
+  const { integration, isLoading, isConnected, refetch } = useIntegration();
+  const { connectMonday, isConnecting } = useMondayOAuth();
+  const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Handle OAuth callback results from URL params
+  useEffect(() => {
+    const success = searchParams.get('success');
+    const error = searchParams.get('error');
+
+    if (success === 'true') {
+      toast({
+        title: "Success!",
+        description: "Monday.com connected successfully",
+      });
+      setSearchParams({});
+      refetch();
+    }
+
+    if (error) {
+      toast({
+        title: "Connection Failed",
+        description: `Failed to connect Monday.com: ${error.replace(/_/g, ' ')}`,
+        variant: "destructive",
+      });
+      setSearchParams({});
+    }
+  }, [searchParams, setSearchParams, toast, refetch]);
 
   const formattedDate = integration?.connected_at
     ? format(new Date(integration.connected_at), "MMM d, yyyy")
@@ -89,14 +121,20 @@ export default function Integrations() {
                   </Tooltip>
                 </div>
               ) : (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button className="w-full" disabled>
-                      Connect Monday.com
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Coming soon</TooltipContent>
-                </Tooltip>
+                <Button
+                  onClick={connectMonday}
+                  disabled={isConnecting}
+                  className="w-full bg-[#0073EA] hover:bg-[#0060c2] text-white"
+                >
+                  {isConnecting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    'Connect Monday.com'
+                  )}
+                </Button>
               )}
             </CardContent>
           </Card>
