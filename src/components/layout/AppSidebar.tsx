@@ -36,8 +36,11 @@ const navItems: NavItem[] = [
 
 export function AppSidebar() {
   const { state, toggleSidebar } = useSidebar();
-  const { user } = useAuth();
+  const { profile } = useAuth();
   const isCollapsed = state === "collapsed";
+
+  const displayName = profile?.full_name || profile?.email?.split("@")[0] || "User";
+  const avatarInitial = displayName.charAt(0).toUpperCase();
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">
@@ -102,16 +105,16 @@ export function AppSidebar() {
         <div className="flex items-center gap-3 p-3">
           <Avatar className="h-8 w-8 shrink-0">
             <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-              {user?.name?.charAt(0).toUpperCase() || "U"}
+              {avatarInitial}
             </AvatarFallback>
           </Avatar>
           {!isCollapsed && (
             <div className="flex flex-col overflow-hidden">
               <span className="truncate text-sm font-medium text-sidebar-foreground">
-                {user?.name || "User"}
+                {displayName}
               </span>
               <span className="truncate text-xs text-sidebar-foreground/70">
-                {user?.email || "user@example.com"}
+                {profile?.email || "user@example.com"}
               </span>
             </div>
           )}

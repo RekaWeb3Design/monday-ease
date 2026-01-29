@@ -16,7 +16,10 @@ interface TopNavbarProps {
 }
 
 export function TopNavbar({ pageTitle = "Dashboard" }: TopNavbarProps) {
-  const { user, signOut } = useAuth();
+  const { profile, signOut } = useAuth();
+
+  const displayName = profile?.full_name || profile?.email?.split("@")[0] || "User";
+  const avatarInitial = displayName.charAt(0).toUpperCase();
 
   const handleSignOut = async () => {
     await signOut();
@@ -49,7 +52,7 @@ export function TopNavbar({ pageTitle = "Dashboard" }: TopNavbarProps) {
             <Button variant="ghost" className="relative h-9 w-9 rounded-full">
               <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-primary text-primary-foreground">
-                  {user?.name?.charAt(0).toUpperCase() || "U"}
+                  {avatarInitial}
                 </AvatarFallback>
               </Avatar>
             </Button>
@@ -57,8 +60,8 @@ export function TopNavbar({ pageTitle = "Dashboard" }: TopNavbarProps) {
           <DropdownMenuContent align="end" className="w-56">
             <div className="flex items-center justify-start gap-2 p-2">
               <div className="flex flex-col space-y-1 leading-none">
-                <p className="font-medium">{user?.name || "User"}</p>
-                <p className="text-xs text-muted-foreground">{user?.email}</p>
+                <p className="font-medium">{displayName}</p>
+                <p className="text-xs text-muted-foreground">{profile?.email}</p>
               </div>
             </div>
             <DropdownMenuSeparator />

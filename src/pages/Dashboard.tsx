@@ -31,7 +31,9 @@ const stats = [
 ];
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { profile } = useAuth();
+
+  const displayName = profile?.full_name || profile?.email?.split("@")[0] || "User";
 
   return (
     <div className="space-y-6">
@@ -39,7 +41,7 @@ export default function Dashboard() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
         <p className="text-muted-foreground">
-          Welcome back, {user?.name || "User"}! Here's what's happening.
+          Welcome back, {displayName}! Here's what's happening.
         </p>
       </div>
 
