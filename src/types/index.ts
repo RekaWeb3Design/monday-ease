@@ -70,3 +70,22 @@ export interface StatCard {
   description?: string;
   icon?: React.ComponentType<{ className?: string }>;
 }
+
+// User integration from database (user_integrations table)
+export interface UserIntegration {
+  id: string;
+  user_id: string;
+  integration_type: string;
+  status: 'connected' | 'disconnected' | 'expired';
+  workspace_name: string | null;
+  monday_account_id: string | null;
+  monday_user_id: string | null;
+  access_token: string;
+  refresh_token: string | null;
+  token_expires_at: string | null;
+  scopes: string[] | null;
+  connected_at: string | null;
+  last_used_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}

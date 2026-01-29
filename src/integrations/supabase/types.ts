@@ -94,6 +94,60 @@ export type Database = {
         }
         Relationships: []
       }
+      user_integrations: {
+        Row: {
+          access_token: string
+          connected_at: string | null
+          created_at: string | null
+          id: string
+          integration_type: string
+          last_used_at: string | null
+          monday_account_id: string | null
+          monday_user_id: string | null
+          refresh_token: string | null
+          scopes: string[] | null
+          status: string
+          token_expires_at: string | null
+          updated_at: string | null
+          user_id: string
+          workspace_name: string | null
+        }
+        Insert: {
+          access_token: string
+          connected_at?: string | null
+          created_at?: string | null
+          id?: string
+          integration_type?: string
+          last_used_at?: string | null
+          monday_account_id?: string | null
+          monday_user_id?: string | null
+          refresh_token?: string | null
+          scopes?: string[] | null
+          status?: string
+          token_expires_at?: string | null
+          updated_at?: string | null
+          user_id: string
+          workspace_name?: string | null
+        }
+        Update: {
+          access_token?: string
+          connected_at?: string | null
+          created_at?: string | null
+          id?: string
+          integration_type?: string
+          last_used_at?: string | null
+          monday_account_id?: string | null
+          monday_user_id?: string | null
+          refresh_token?: string | null
+          scopes?: string[] | null
+          status?: string
+          token_expires_at?: string | null
+          updated_at?: string | null
+          user_id?: string
+          workspace_name?: string | null
+        }
+        Relationships: []
+      }
       user_profiles: {
         Row: {
           avatar_url: string | null

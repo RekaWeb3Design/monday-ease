@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   Building2,
+  Plug,
   Zap,
   Activity,
   Settings,
@@ -29,6 +30,7 @@ import type { NavItem } from "@/types";
 const navItems: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Organization", url: "/organization", icon: Building2 },
+  { title: "Integrations", url: "/integrations", icon: Plug },
   { title: "Templates", url: "/templates", icon: Zap },
   { title: "Activity", url: "/activity", icon: Activity },
   { title: "Settings", url: "/settings", icon: Settings },
