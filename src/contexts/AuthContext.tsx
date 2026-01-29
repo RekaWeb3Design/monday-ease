@@ -144,12 +144,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Defer profile and org fetching with setTimeout to prevent deadlock
         if (newSession?.user) {
           setTimeout(async () => {
-            const userProfile = await fetchProfile(newSession.user.id);
-            setProfile(userProfile);
-            await fetchOrganization(newSession.user.id);
-            // Only set loading false AFTER org is fetched to prevent flash
-            if (event === "INITIAL_SESSION") {
-              setLoading(false);
+            try {
+              const userProfile = await fetchProfile(newSession.user.id);
+              setProfile(userProfile);
+              await fetchOrganization(newSession.user.id);
+            } catch (error) {
+              console.error('Error loading user data:', error);
+            } finally {
+              // Only set loading false AFTER org is fetched to prevent flash
+              if (event === "INITIAL_SESSION") {
+                setLoading(false);
+              }
             }
           }, 0);
         } else {
