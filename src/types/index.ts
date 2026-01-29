@@ -76,7 +76,7 @@ export interface UserIntegration {
   id: string;
   user_id: string;
   integration_type: string;
-  status: 'connected' | 'disconnected' | 'expired';
+  status: 'connected' | 'disconnected' | 'expired' | 'error';
   workspace_name: string | null;
   monday_account_id: string | null;
   monday_user_id: string | null;
