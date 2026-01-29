@@ -12,15 +12,48 @@ export interface UserProfile {
   updated_at: string | null;
 }
 
+// Organization from database (organizations table)
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  owner_id: string;
+  monday_workspace_id: string | null;
+  settings: Record<string, any> | null;
+  max_members: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+// Organization member from database (organization_members table)
+export interface OrganizationMember {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role: MemberRole;
+  status: 'active' | 'pending' | 'disabled';
+  display_name: string | null;
+  email: string;
+  invited_at: string | null;
+  joined_at: string | null;
+}
+
+// Member role type
+export type MemberRole = 'owner' | 'admin' | 'member';
+
 // Auth context types
 export interface AuthContextType {
   user: User | null;
   session: Session | null;
   profile: UserProfile | null;
+  organization: Organization | null;
+  memberRole: MemberRole | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, fullName: string) => Promise<void>;
   signOut: () => Promise<void>;
+  createOrganization: (name: string) => Promise<Organization>;
+  refreshOrganization: () => Promise<void>;
 }
 
 // Navigation types

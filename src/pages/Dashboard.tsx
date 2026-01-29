@@ -1,5 +1,6 @@
 import { LayoutDashboard, Users, Zap, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 
@@ -30,19 +31,56 @@ const stats = [
   },
 ];
 
+const getRoleBadgeVariant = (role: string | null) => {
+  switch (role) {
+    case "owner":
+      return "default"; // Uses primary color (green)
+    case "admin":
+      return "secondary";
+    case "member":
+      return "outline";
+    default:
+      return "outline";
+  }
+};
+
+const getRoleLabel = (role: string | null) => {
+  switch (role) {
+    case "owner":
+      return "Owner";
+    case "admin":
+      return "Admin";
+    case "member":
+      return "Member";
+    default:
+      return "";
+  }
+};
+
 export default function Dashboard() {
-  const { profile } = useAuth();
+  const { profile, organization, memberRole } = useAuth();
 
   const displayName = profile?.full_name || profile?.email?.split("@")[0] || "User";
 
   return (
     <div className="space-y-6">
       {/* Welcome header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground">
-          Welcome back, {displayName}! Here's what's happening.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight">
+              {organization ? `Welcome to ${organization.name}` : "Dashboard"}
+            </h1>
+            {memberRole && (
+              <Badge variant={getRoleBadgeVariant(memberRole)}>
+                {getRoleLabel(memberRole)}
+              </Badge>
+            )}
+          </div>
+          <p className="text-muted-foreground">
+            Welcome back, {displayName}! Here's what's happening.
+          </p>
+        </div>
       </div>
 
       {/* Stats grid */}
