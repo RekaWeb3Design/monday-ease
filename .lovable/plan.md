@@ -1,29 +1,33 @@
 
 
-## Multi-tenant Support - Organizations Implementation
+## Organization Management UI Implementation
 
 ### Overview
-Implement organization support in the app, allowing users to create organizations during onboarding and track their membership role. This builds the foundation for future team collaboration features.
+Create a full-featured Organization management page where owners can view and manage team members, invite new members, and edit member details.
 
 ---
 
-### Architecture Flow
+### Architecture
 
 ```text
-User Login Flow:
-┌──────────┐     ┌─────────────────┐     ┌───────────────────┐
-│  /auth   │────>│ ProtectedRoute  │────>│ RequireOrganization│
-│  (login) │     │ (checks user)   │     │ (checks org)       │
-└──────────┘     └─────────────────┘     └───────────────────┘
-                          │                        │
-                          │                        │
-                          ▼                        ▼
-                   No user?              No organization?
-                   Redirect to /auth     Redirect to /onboarding
-                          │                        │
-                          │                        │
-                          ▼                        ▼
-                   Has user + org? ─────────> Dashboard
+Organization Page Structure:
+┌─────────────────────────────────────────────────────────────────┐
+│  Organization Header                                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ [Organization Name] [Edit Button]                        │   │
+│  │ 3 / 10 members [Progress Bar]                           │   │
+│  └─────────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────────┤
+│  Team Members Section                                           │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ "Team Members"          [Invite Member Button]           │   │
+│  ├─────────────────────────────────────────────────────────┤   │
+│  │ Name    │ Email         │ Role   │ Status │ Actions    │   │
+│  │ John D. │ john@...      │ Owner  │ Active │ You        │   │
+│  │ Jane S. │ jane@...      │ Admin  │ Active │ Edit/Remove│   │
+│  │ Bob M.  │ bob@...       │ Member │ Pending│ Edit/Remove│   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -32,189 +36,218 @@ User Login Flow:
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/types/index.ts` | Modify | Add Organization, OrganizationMember types, update AuthContextType |
-| `src/contexts/AuthContext.tsx` | Modify | Add organization fetching, createOrganization function |
-| `src/components/auth/RequireOrganization.tsx` | Create | Guard component for org-required routes |
-| `src/pages/Onboarding.tsx` | Create | Organization setup page |
-| `src/App.tsx` | Modify | Add onboarding route, wrap dashboard with RequireOrganization |
-| `src/pages/Dashboard.tsx` | Modify | Display organization name and member role badge |
+| `src/hooks/useOrganizationMembers.ts` | Create | Hook for fetching and managing members |
+| `src/pages/Organization.tsx` | Create | Main organization management page |
+| `src/App.tsx` | Modify | Add `/organization` route |
 
 ---
 
 ### Implementation Details
 
-#### 1. Update Types (src/types/index.ts)
+#### 1. Create useOrganizationMembers Hook
 
-Add new interfaces for organizations:
+**Location:** `src/hooks/useOrganizationMembers.ts`
+
+**Purpose:** Encapsulate all member management logic
+
+**Returns:**
+- `members: OrganizationMember[]` - List of all organization members
+- `isLoading: boolean` - Loading state
+- `error: Error | null` - Error state
+- `inviteMember: (email: string, displayName: string) => Promise<void>` - Invite new member
+- `updateMember: (memberId: string, updates: { displayName?: string; role?: MemberRole }) => Promise<void>` - Edit member
+- `removeMember: (memberId: string) => Promise<void>` - Remove member from organization
+- `refetch: () => Promise<void>` - Refresh member list
+
+**Implementation approach:**
+- Uses `useAuth()` to get current organization
+- Fetches members from `organization_members` table filtered by `organization_id`
+- Handles all CRUD operations with proper error handling
+- Shows toast notifications for success/failure
+
+---
+
+#### 2. Create Organization Page
+
+**Location:** `src/pages/Organization.tsx`
+
+**Structure:**
+
+**A. Owner-Only Protection**
+- Check if `memberRole === 'owner'`
+- If not owner, show message: "Only organization owners can manage team members"
+- Styled as a centered card with info icon
+
+**B. Organization Header Section**
+- Card containing:
+  - Organization name as large heading with Edit button (pencil icon)
+  - Member count display: "X / 10 members" 
+  - Progress bar showing capacity usage
+  - Edit dialog for renaming organization (updates `organizations` table)
+
+**C. Team Members Section**
+- Header row with "Team Members" title and "Invite Member" button (green, right-aligned)
+- Table component with columns:
+  - **Name** - `display_name` or fallback to email prefix
+  - **Email** - Member's email address
+  - **Role** - Badge with role name (Owner=green, Admin=blue, Member=gray)
+  - **Status** - Badge with status (Active=green, Pending=yellow, Disabled=red)
+  - **Actions** - Edit/Remove buttons or "You" text for owner
+
+**D. Empty State**
+- When only the owner exists, show encouraging message
+- "No team members yet. Invite your first team member!"
+
+**E. Dialogs:**
+
+1. **Invite Member Dialog**
+   - Trigger: "Invite Member" button
+   - Fields:
+     - Email input (required, email validation with Zod)
+     - Display Name input (required, min 2 characters)
+   - Buttons: "Cancel" (outline), "Send Invitation" (green primary)
+   - On submit:
+     - Insert into `organization_members` with:
+       - `organization_id` from context
+       - `user_id` = generated UUID (placeholder until they sign up)
+       - `role` = 'member' (default)
+       - `status` = 'pending'
+       - `email` = input value
+       - `display_name` = input value
+       - `invited_at` = current timestamp
+     - Show success toast
+     - Close dialog and refetch members
+
+2. **Edit Member Dialog**
+   - Trigger: "Edit" button in row actions
+   - Fields:
+     - Display Name (editable input)
+     - Role dropdown (Admin/Member options only - cannot change to Owner)
+   - Buttons: "Cancel", "Save Changes"
+   - On submit:
+     - Update `organization_members` record
+     - Show success toast
+     - Close dialog and refetch members
+
+3. **Remove Member Alert Dialog**
+   - Trigger: "Remove" button in row actions
+   - Title: "Remove Team Member"
+   - Description: "Are you sure you want to remove [name] from the organization? This action cannot be undone."
+   - Buttons: "Cancel" (outline), "Remove" (destructive/red)
+   - On confirm:
+     - Delete from `organization_members`
+     - Show success toast
+     - Close dialog and refetch members
+
+4. **Edit Organization Dialog**
+   - Trigger: "Edit" button next to org name
+   - Fields:
+     - Organization Name input
+   - Buttons: "Cancel", "Save"
+   - On submit:
+     - Update `organizations` table
+     - Call `refreshOrganization()` from context
+     - Show success toast
+
+---
+
+#### 3. Update App.tsx
+
+Add new route for organization page:
 
 ```typescript
-export interface Organization {
-  id: string;
-  name: string;
-  slug: string;
-  owner_id: string;
-  monday_workspace_id: string | null;
-  settings: Record<string, any> | null;
-  max_members: number | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-export interface OrganizationMember {
-  id: string;
-  organization_id: string;
-  user_id: string;
-  role: 'owner' | 'admin' | 'member';
-  status: 'active' | 'pending' | 'disabled';
-  display_name: string | null;
-  email: string;
-  invited_at: string | null;
-  joined_at: string | null;
-}
-
-export type MemberRole = 'owner' | 'admin' | 'member';
+<Route
+  path="/organization"
+  element={
+    <ProtectedRoute>
+      <RequireOrganization>
+        <AppLayout pageTitle="Organization">
+          <Organization />
+        </AppLayout>
+      </RequireOrganization>
+    </ProtectedRoute>
+  }
+/>
 ```
 
-Update `AuthContextType` to include:
-- `organization: Organization | null`
-- `memberRole: MemberRole | null`
-- `createOrganization: (name: string) => Promise<Organization>`
-- `refreshOrganization: () => Promise<void>`
+The sidebar already has the Organization link pointing to `/organization` - no changes needed there.
 
 ---
 
-#### 2. Update AuthContext (src/contexts/AuthContext.tsx)
+### Badge Color Scheme
 
-**New State:**
-- `organization: Organization | null`
-- `memberRole: MemberRole | null`
+Following the Monday.com-inspired theme:
 
-**New Functions:**
-
-`fetchOrganization(userId: string)`:
-1. First check if user owns an organization via `organizations` table where `owner_id = userId`
-2. If found, set organization and role = 'owner'
-3. If not found, check `organization_members` table for active membership
-4. If membership found, set organization and role from membership
-
-`createOrganization(name: string)`:
-1. Generate slug from name (lowercase, replace non-alphanumeric with hyphens, append timestamp)
-2. Insert into `organizations` table
-3. Insert owner record into `organization_members`
-4. Update `user_profiles.primary_organization_id`
-5. Update local state
-
-`refreshOrganization()`:
-- Re-fetch organization data (useful after updates)
-
-**Integration:**
-- Call `fetchOrganization` after profile is loaded in the auth state listener
-- Expose `organization`, `memberRole`, `createOrganization`, `refreshOrganization` in context value
+| Badge | Color | Tailwind Classes |
+|-------|-------|------------------|
+| Owner | Green | `bg-[#01cb72] text-white` |
+| Admin | Blue | `bg-blue-500 text-white` |
+| Member | Gray | `bg-gray-200 text-gray-700` |
+| Active | Green | `bg-green-100 text-green-700` |
+| Pending | Yellow | `bg-[#ffcd03] text-gray-900` |
+| Disabled | Red | `bg-[#fb275d] text-white` |
 
 ---
 
-#### 3. Create RequireOrganization Component
+### Validation
 
-**Location:** `src/components/auth/RequireOrganization.tsx`
+Using Zod for form validation:
 
-**Behavior:**
-- Uses `useAuth()` to get `organization` and `loading`
-- If loading: show centered spinner
-- If no organization: redirect to `/onboarding`
-- Otherwise: render children
-
-This component separates concerns from ProtectedRoute (which handles auth) and allows for clean routing logic.
-
----
-
-#### 4. Create Onboarding Page
-
-**Location:** `src/pages/Onboarding.tsx`
-
-**Design (matching Auth page style):**
-- Centered layout with max-width 400px
-- MondayEase logo (180px width) at top
-- Heading: "Create Your Organization"
-- Subtext: "Set up your workspace to start inviting team members"
-- Single input field for organization name
-- Create button using primary green (#01cb72)
-- Loading state during creation
-- Error handling with displayed messages
-- On success: redirect to `/`
-
-**If user already has an organization:** redirect to `/` immediately via useEffect
-
----
-
-#### 5. Update App.tsx Routing
-
-**New Route Structure:**
 ```typescript
-<Route path="/auth" element={<Auth />} />
-<Route path="/onboarding" element={
-  <ProtectedRoute>
-    <Onboarding />
-  </ProtectedRoute>
-} />
-<Route path="/" element={
-  <ProtectedRoute>
-    <RequireOrganization>
-      <AppLayout pageTitle="Dashboard">
-        <Dashboard />
-      </AppLayout>
-    </RequireOrganization>
-  </ProtectedRoute>
-} />
+const inviteSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  displayName: z.string().min(2, "Display name must be at least 2 characters"),
+});
+
+const editMemberSchema = z.object({
+  displayName: z.string().min(2, "Display name must be at least 2 characters"),
+  role: z.enum(["admin", "member"]),
+});
+
+const editOrgSchema = z.object({
+  name: z.string().min(2, "Organization name must be at least 2 characters"),
+});
 ```
 
-This ensures:
-1. Unauthenticated users go to /auth
-2. Authenticated users without org go to /onboarding
-3. Authenticated users with org access dashboard
+---
+
+### Responsive Design
+
+- **Desktop:** Full table with all columns visible
+- **Mobile:** 
+  - Cards stack vertically
+  - Table has horizontal scroll
+  - Action buttons collapse into dropdown menu on smaller screens
 
 ---
 
-#### 6. Update Dashboard
+### Error Handling
 
-**Changes:**
-- Import `organization` and `memberRole` from `useAuth()`
-- Update welcome header to show organization name: "Welcome to {organization.name}"
-- Add a small role badge next to user name showing their role (Owner/Admin/Member)
-- Use appropriate badge colors:
-  - Owner: green background
-  - Admin: blue background  
-  - Member: gray background
+- Network errors show toast with retry suggestion
+- Validation errors show inline below form fields
+- Loading states for all async operations
+- Disabled buttons during submission to prevent double-submits
 
 ---
 
-### Database Compatibility
+### Security Considerations
 
-The existing Supabase schema already has:
-- `organizations` table with proper columns (name, slug, owner_id, etc.)
-- `organization_members` table with role, status, etc.
-- RLS policies allowing:
-  - Owners to manage their organizations
-  - Members to view organizations they belong to
-  - Owners to manage organization members
+The existing RLS policies handle security:
+- `Org owner manages members` - Allows owners full CRUD on their org members
+- `Users view own membership` - Members can only view their own membership
+- `Owners full access to own org` - Owners can update organization details
 
-No database migrations are required for this implementation.
+No additional database changes needed.
 
 ---
 
-### User Flow Summary
+### User Experience Flow
 
-1. **New User Signs Up** -> Email confirmation -> Sign In
-2. **First Login** -> ProtectedRoute passes -> RequireOrganization redirects to `/onboarding`
-3. **Onboarding** -> User enters org name -> Create Organization
-4. **Organization Created** -> User is set as owner -> Redirect to Dashboard
-5. **Future Logins** -> Organization is fetched automatically -> Direct access to Dashboard
-
----
-
-### Edge Cases Handled
-
-- User refreshes page during onboarding: stays on onboarding (session persists, org check runs)
-- User tries to access dashboard directly without org: redirected to onboarding
-- User already has org and visits /onboarding: redirected to dashboard
-- Organization creation fails: error message displayed, user can retry
+1. Owner navigates to /organization from sidebar
+2. Sees organization header with name and member count
+3. Views table of all members with their roles and statuses
+4. Can click "Invite Member" to add new team members
+5. Can click "Edit" on any non-owner member to update details
+6. Can click "Remove" to remove members (with confirmation)
+7. Can click edit icon next to org name to rename organization
 
