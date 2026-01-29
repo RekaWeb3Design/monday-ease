@@ -1,20 +1,9 @@
 
 
-## Fix: Organization Creation Screen Flash on Login
+## Add Error Handling to AuthContext setTimeout
 
-### The Problem
-When a user who already has an organization logs in, they briefly see the organization creation screen (Onboarding page) before being redirected to the dashboard. This creates a jarring UX experience.
-
-### Root Cause
-The issue is a race condition in the `AuthContext.tsx`. The `loading` state is set to `false` before the organization data has finished loading:
-
-1. The `onAuthStateChange` listener calls `setLoading(false)` on the `INITIAL_SESSION` event (line 159)
-2. But the `fetchOrganization` call is deferred inside a `setTimeout` (lines 146-150)
-3. This means `RequireOrganization` sees `loading: false` but `organization: null`
-4. It redirects to `/onboarding`, then the org loads, and the user is redirected back
-
-### Solution
-Track when organization data is actually loaded, not just when the auth session is established. We'll add an `initialLoadComplete` flag that only becomes `true` after the organization fetch finishes.
+### Overview
+Add try-catch-finally to the setTimeout callback in AuthContext to ensure `setLoading(false)` is always called even if `fetchProfile` or `fetchOrganization` fails. This prevents the app from getting stuck in a loading state if an error occurs during user data fetching.
 
 ---
 
@@ -22,100 +11,47 @@ Track when organization data is actually loaded, not just when the auth session 
 
 | File | Change |
 |------|--------|
-| `src/contexts/AuthContext.tsx` | Separate auth loading from org loading |
+| `src/contexts/AuthContext.tsx` | Wrap setTimeout callback in try-catch-finally |
 
 ---
 
 ### Implementation
 
-**1. Update AuthContext.tsx**
-
-Add a new `orgLoading` state to track whether organization data is still being fetched:
-
+**Current code (lines 146-154):**
 ```typescript
-const [loading, setLoading] = useState(true);
-const [orgLoading, setOrgLoading] = useState(true);  // NEW
-```
-
-**2. Wrap fetchOrganization calls**
-
-Set `orgLoading` to `true` before fetching and `false` after:
-
-```typescript
-// In the setTimeout callback
 setTimeout(async () => {
   const userProfile = await fetchProfile(newSession.user.id);
   setProfile(userProfile);
   await fetchOrganization(newSession.user.id);
-  setOrgLoading(false);  // NEW
+  // Only set loading false AFTER org is fetched to prevent flash
+  if (event === "INITIAL_SESSION") {
+    setLoading(false);
+  }
 }, 0);
-
-// In getSession().then()
-if (existingSession?.user) {
-  const userProfile = await fetchProfile(existingSession.user.id);
-  setProfile(userProfile);
-  await fetchOrganization(existingSession.user.id);
-}
-setOrgLoading(false);  // NEW
-setLoading(false);
 ```
 
-**3. Handle the no-session case**
-
-When there's no session, also set `orgLoading` to `false`:
-
+**Updated code:**
 ```typescript
-} else {
-  setProfile(null);
-  setOrganization(null);
-  setMemberRole(null);
-  setOrgLoading(false);  // NEW
-}
-```
-
-**4. Derive combined loading state**
-
-Either expose `orgLoading` separately or combine them. The simplest fix is to keep one `loading` state but only set it to `false` after the org fetch completes:
-
-**Simplified approach** - just move `setLoading(false)` to after `fetchOrganization`:
-
-```typescript
-// In onAuthStateChange INITIAL_SESSION handler:
-// Remove the immediate setLoading(false) on line 158-160
-// Instead, let the setTimeout callback handle it
-
 setTimeout(async () => {
-  const userProfile = await fetchProfile(newSession.user.id);
-  setProfile(userProfile);
-  await fetchOrganization(newSession.user.id);
-  setLoading(false);  // Only set loading false AFTER org is fetched
+  try {
+    const userProfile = await fetchProfile(newSession.user.id);
+    setProfile(userProfile);
+    await fetchOrganization(newSession.user.id);
+  } catch (error) {
+    console.error('Error loading user data:', error);
+  } finally {
+    if (event === "INITIAL_SESSION") {
+      setLoading(false);
+    }
+  }
 }, 0);
 ```
 
-And for the no-user case:
-```typescript
-} else {
-  setProfile(null);
-  setOrganization(null);
-  setMemberRole(null);
-  setLoading(false);  // Set loading false when there's no user
-}
-```
-
 ---
 
-### Key Changes Summary
+### Why This Matters
 
-1. Remove `setLoading(false)` from the `INITIAL_SESSION` event check (line 157-160)
-2. Move `setLoading(false)` inside the `setTimeout` callback, after `fetchOrganization` completes
-3. Add `setLoading(false)` to the `else` branch when there's no session/user
-4. Ensure `getSession().then()` only sets `loading` to `false` after `fetchOrganization` completes
-
----
-
-### Why This Works
-
-- The `loading` state now represents "are we done loading ALL user data?" rather than just "do we have a session?"
-- `RequireOrganization` will continue showing the loading spinner until both the session AND organization data are loaded
-- No flash of the onboarding screen because we don't render it until we know the user truly has no organization
+- **Prevents stuck loading state**: If either `fetchProfile` or `fetchOrganization` throws an error, the `finally` block ensures `setLoading(false)` is still called
+- **Error visibility**: Errors are logged to console for debugging
+- **Resilience**: The app continues to function even if data fetching fails partially
 
