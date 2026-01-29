@@ -5,12 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-
-function MondayIcon({ className }: { className?: string }) {
-  return (
-    <div className={`rounded-lg bg-gradient-to-br from-[#FF3D57] to-[#FFCB00] ${className}`} />
-  );
-}
+import mondayLogo from "@/assets/monday-logo.png";
 
 function SlackIcon({ className }: { className?: string }) {
   return (
@@ -47,7 +42,7 @@ export default function Integrations() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-              <MondayIcon className="h-12 w-12 shrink-0" />
+              <img src={mondayLogo} alt="Monday.com" className="h-12 w-12 shrink-0 object-contain" />
               <div className="flex-1 space-y-1">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base">Monday.com</CardTitle>
