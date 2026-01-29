@@ -11,6 +11,7 @@ import Auth from "./pages/Auth";
 import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
 import Organization from "./pages/Organization";
+import Integrations from "./pages/Integrations";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,6 +52,18 @@ const App = () => (
                   <RequireOrganization>
                     <AppLayout pageTitle="Organization">
                       <Organization />
+                    </AppLayout>
+                  </RequireOrganization>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/integrations"
+              element={
+                <ProtectedRoute>
+                  <RequireOrganization>
+                    <AppLayout pageTitle="Integrations">
+                      <Integrations />
                     </AppLayout>
                   </RequireOrganization>
                 </ProtectedRoute>
