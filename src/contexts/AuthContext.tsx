@@ -147,16 +147,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
             const userProfile = await fetchProfile(newSession.user.id);
             setProfile(userProfile);
             await fetchOrganization(newSession.user.id);
+            // Only set loading false AFTER org is fetched to prevent flash
+            if (event === "INITIAL_SESSION") {
+              setLoading(false);
+            }
           }, 0);
         } else {
           setProfile(null);
           setOrganization(null);
           setMemberRole(null);
-        }
-
-        // Only set loading to false after initial auth check
-        if (event === "INITIAL_SESSION") {
-          setLoading(false);
+          // Set loading false when there's no user
+          if (event === "INITIAL_SESSION") {
+            setLoading(false);
+          }
         }
       }
     );
