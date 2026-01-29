@@ -6,8 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { CheckCircle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { CheckCircle, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -18,6 +27,7 @@ export default function Auth() {
   const [signInPassword, setSignInPassword] = useState("");
   const [signInError, setSignInError] = useState("");
   const [signInLoading, setSignInLoading] = useState(false);
+  const [showSignInPassword, setShowSignInPassword] = useState(false);
 
   // Sign Up form state
   const [signUpFullName, setSignUpFullName] = useState("");
@@ -27,6 +37,15 @@ export default function Auth() {
   const [signUpError, setSignUpError] = useState("");
   const [signUpSuccess, setSignUpSuccess] = useState(false);
   const [signUpLoading, setSignUpLoading] = useState(false);
+  const [showSignUpPassword, setShowSignUpPassword] = useState(false);
+  const [showSignUpConfirmPassword, setShowSignUpConfirmPassword] = useState(false);
+
+  // Forgot password state
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
+  const [forgotPasswordError, setForgotPasswordError] = useState("");
+  const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState(false);
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
 
   // Redirect authenticated users to dashboard
   useEffect(() => {
@@ -91,6 +110,41 @@ export default function Auth() {
     }
   };
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotPasswordError("");
+    setForgotPasswordSuccess(false);
+
+    if (!forgotPasswordEmail) {
+      setForgotPasswordError("Please enter your email");
+      return;
+    }
+
+    setForgotPasswordLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail, {
+        redirectTo: `${window.location.origin}/auth`,
+      });
+      if (error) throw error;
+      setForgotPasswordSuccess(true);
+      setForgotPasswordEmail("");
+    } catch (error: any) {
+      setForgotPasswordError(error.message || "Failed to send reset link. Please try again.");
+    } finally {
+      setForgotPasswordLoading(false);
+    }
+  };
+
+  const handleForgotPasswordOpenChange = (open: boolean) => {
+    setForgotPasswordOpen(open);
+    if (!open) {
+      // Reset state when closing
+      setForgotPasswordEmail("");
+      setForgotPasswordError("");
+      setForgotPasswordSuccess(false);
+    }
+  };
+
   // Don't render auth page if already logged in
   if (loading) {
     return null;
@@ -138,13 +192,29 @@ export default function Auth() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="signin-password">Password</Label>
-                    <Input
-                      id="signin-password"
-                      type="password"
-                      placeholder="••••••••"
-                      value={signInPassword}
-                      onChange={(e) => setSignInPassword(e.target.value)}
-                    />
+                    <div className="relative">
+                      <Input
+                        id="signin-password"
+                        type={showSignInPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        value={signInPassword}
+                        onChange={(e) => setSignInPassword(e.target.value)}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                        onClick={() => setShowSignInPassword(!showSignInPassword)}
+                      >
+                        {showSignInPassword ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                   {signInError && (
                     <p className="text-sm text-destructive">{signInError}</p>
@@ -152,6 +222,52 @@ export default function Auth() {
                   <Button type="submit" className="w-full" disabled={signInLoading}>
                     {signInLoading ? "Signing in..." : "Sign In"}
                   </Button>
+
+                  {/* Forgot Password Link */}
+                  <div className="text-center">
+                    <Dialog open={forgotPasswordOpen} onOpenChange={handleForgotPasswordOpenChange}>
+                      <DialogTrigger asChild>
+                        <Button variant="link" className="text-sm text-muted-foreground hover:text-primary">
+                          Forgot password?
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-[400px]">
+                        <DialogHeader>
+                          <DialogTitle>Reset Password</DialogTitle>
+                          <DialogDescription>
+                            Enter your email address and we'll send you a link to reset your password.
+                          </DialogDescription>
+                        </DialogHeader>
+                        {forgotPasswordSuccess ? (
+                          <Alert className="border-primary/50 bg-primary/10">
+                            <CheckCircle className="h-4 w-4 text-primary" />
+                            <AlertDescription className="text-foreground">
+                              Check your email for the reset link.
+                            </AlertDescription>
+                          </Alert>
+                        ) : (
+                          <form onSubmit={handleForgotPassword} className="space-y-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="forgot-email">Email</Label>
+                              <Input
+                                id="forgot-email"
+                                type="email"
+                                placeholder="you@example.com"
+                                value={forgotPasswordEmail}
+                                onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                              />
+                            </div>
+                            {forgotPasswordError && (
+                              <p className="text-sm text-destructive">{forgotPasswordError}</p>
+                            )}
+                            <Button type="submit" className="w-full" disabled={forgotPasswordLoading}>
+                              {forgotPasswordLoading ? "Sending..." : "Send Reset Link"}
+                            </Button>
+                          </form>
+                        )}
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </form>
               </TabsContent>
 
@@ -188,23 +304,55 @@ export default function Auth() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="signup-password">Password</Label>
-                      <Input
-                        id="signup-password"
-                        type="password"
-                        placeholder="••••••••"
-                        value={signUpPassword}
-                        onChange={(e) => setSignUpPassword(e.target.value)}
-                      />
+                      <div className="relative">
+                        <Input
+                          id="signup-password"
+                          type={showSignUpPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          value={signUpPassword}
+                          onChange={(e) => setSignUpPassword(e.target.value)}
+                          className="pr-10"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                          onClick={() => setShowSignUpPassword(!showSignUpPassword)}
+                        >
+                          {showSignUpPassword ? (
+                            <EyeOff className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="signup-confirm">Confirm Password</Label>
-                      <Input
-                        id="signup-confirm"
-                        type="password"
-                        placeholder="••••••••"
-                        value={signUpConfirmPassword}
-                        onChange={(e) => setSignUpConfirmPassword(e.target.value)}
-                      />
+                      <div className="relative">
+                        <Input
+                          id="signup-confirm"
+                          type={showSignUpConfirmPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          value={signUpConfirmPassword}
+                          onChange={(e) => setSignUpConfirmPassword(e.target.value)}
+                          className="pr-10"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                          onClick={() => setShowSignUpConfirmPassword(!showSignUpConfirmPassword)}
+                        >
+                          {showSignUpConfirmPassword ? (
+                            <EyeOff className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
                     {signUpError && (
                       <p className="text-sm text-destructive">{signUpError}</p>
