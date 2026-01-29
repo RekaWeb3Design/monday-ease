@@ -1,6 +1,7 @@
 import { LayoutDashboard, Users, Zap, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
+import mondayeaseLogo from "@/assets/mondayease_logo.png";
 
 const stats = [
   {
@@ -63,8 +64,8 @@ export default function Dashboard() {
       {/* Placeholder content area */}
       <Card className="p-8">
         <div className="flex flex-col items-center justify-center text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-            <Zap className="h-8 w-8 text-primary" />
+          <div className="flex h-20 w-40 items-center justify-center">
+            <img src={mondayeaseLogo} alt="MondayEase" className="h-auto w-full" />
           </div>
           <h2 className="mt-4 text-lg font-semibold">Welcome to MondayEase</h2>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
