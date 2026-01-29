@@ -4,12 +4,12 @@ import { useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useIntegration } from "@/hooks/useIntegration";
 import { useMondayOAuth } from "@/hooks/useMondayOAuth";
+import { useDisconnectIntegration } from "@/hooks/useDisconnectIntegration";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import mondayLogo from "@/assets/monday-logo.png";
 
 function SlackIcon({ className }: { className?: string }) {
@@ -27,8 +27,16 @@ function NotionIcon({ className }: { className?: string }) {
 export default function Integrations() {
   const { integration, isLoading, isConnected, refetch } = useIntegration();
   const { connectMonday, isConnecting } = useMondayOAuth();
+  const { disconnect, isDisconnecting } = useDisconnectIntegration();
   const { toast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  const handleDisconnect = async () => {
+    const success = await disconnect('monday');
+    if (success) {
+      refetch();
+    }
+  };
 
   // Handle OAuth callback results from URL params
   useEffect(() => {
@@ -111,14 +119,21 @@ export default function Integrations() {
                       <span className="font-medium">Connected:</span> {formattedDate}
                     </p>
                   )}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="destructive" className="w-full" disabled>
-                        Disconnect
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Coming soon</TooltipContent>
-                  </Tooltip>
+                  <Button 
+                    variant="destructive" 
+                    className="w-full" 
+                    onClick={handleDisconnect}
+                    disabled={isDisconnecting}
+                  >
+                    {isDisconnecting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Disconnecting...
+                      </>
+                    ) : (
+                      'Disconnect'
+                    )}
+                  </Button>
                 </div>
               ) : (
                 <Button
