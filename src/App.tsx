@@ -10,6 +10,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import Auth from "./pages/Auth";
 import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
+import Organization from "./pages/Organization";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -38,6 +39,18 @@ const App = () => (
                   <RequireOrganization>
                     <AppLayout pageTitle="Dashboard">
                       <Dashboard />
+                    </AppLayout>
+                  </RequireOrganization>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/organization"
+              element={
+                <ProtectedRoute>
+                  <RequireOrganization>
+                    <AppLayout pageTitle="Organization">
+                      <Organization />
                     </AppLayout>
                   </RequireOrganization>
                 </ProtectedRoute>
