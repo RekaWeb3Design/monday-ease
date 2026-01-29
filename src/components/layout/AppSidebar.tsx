@@ -7,6 +7,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from "lucide-react";
+import mondayeaseLogo from "@/assets/mondayease_logo.png";
 import { NavLink } from "@/components/NavLink";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -41,15 +42,17 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r-0">
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <div className="flex items-center gap-2">
-          {/* Logo icon */}
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-            M
-          </div>
-          {!isCollapsed && (
-            <span className="text-lg font-semibold text-sidebar-foreground">
-              Monday<span className="text-primary">Ease</span>
-            </span>
+        <div className="flex items-center justify-center">
+          {isCollapsed ? (
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-lg">
+              M
+            </div>
+          ) : (
+            <img
+              src={mondayeaseLogo}
+              alt="MondayEase"
+              className="w-40 h-auto"
+            />
           )}
         </div>
       </SidebarHeader>
