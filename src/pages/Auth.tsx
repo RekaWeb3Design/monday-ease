@@ -17,6 +17,7 @@ import {
 import { CheckCircle, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import mondayeaseLogo from "@/assets/mondayease_logo.png";
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -155,12 +156,11 @@ export default function Auth() {
       <div className="w-full max-w-[400px] space-y-6">
         {/* Logo */}
         <div className="flex flex-col items-center space-y-2">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground text-xl font-bold">
-            M
-          </div>
-          <h1 className="text-2xl font-semibold">
-            Monday<span className="text-primary">Ease</span>
-          </h1>
+          <img 
+            src={mondayeaseLogo} 
+            alt="MondayEase" 
+            className="w-[180px] h-auto"
+          />
           <p className="text-sm text-muted-foreground">
             Streamline your Monday.com experience
           </p>
