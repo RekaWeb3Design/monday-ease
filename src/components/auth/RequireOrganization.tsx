@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
@@ -8,7 +8,31 @@ interface RequireOrganizationProps {
 }
 
 export function RequireOrganization({ children }: RequireOrganizationProps) {
-  const { user, organization, pendingOrganization, loading, profile } = useAuth();
+  const { user, organization, pendingOrganization, loading } = useAuth();
+  const [activationTimeout, setActivationTimeout] = useState(false);
+
+  // Check if this is an invited member
+  const isInvitedMember = user?.user_metadata?.invited_to_organization;
+
+  // Set a timeout for invited member activation
+  // If activation doesn't complete within 5 seconds, stop waiting
+  useEffect(() => {
+    if (isInvitedMember && !organization && !loading) {
+      const timer = setTimeout(() => {
+        console.log("Invited member activation timeout - redirecting to onboarding");
+        setActivationTimeout(true);
+      }, 5000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [isInvitedMember, organization, loading]);
+
+  // Reset timeout if organization becomes available
+  useEffect(() => {
+    if (organization) {
+      setActivationTimeout(false);
+    }
+  }, [organization]);
 
   if (loading) {
     return (
@@ -18,14 +42,9 @@ export function RequireOrganization({ children }: RequireOrganizationProps) {
     );
   }
 
-  // Check if this is an invited member being activated
-  // The AuthContext's handleInvitedMemberActivation will process this
-  // We need to wait for it to complete before redirecting to onboarding
-  const isInvitedMember = user?.user_metadata?.invited_to_organization;
-  
-  if (isInvitedMember && !organization) {
-    // Still processing the invited member activation
-    // Show loading state while AuthContext activates the membership
+  // For invited members: show brief loading while activation processes
+  // But if timeout occurs or there's no pending membership, redirect to onboarding
+  if (isInvitedMember && !organization && !activationTimeout) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -36,12 +55,19 @@ export function RequireOrganization({ children }: RequireOrganizationProps) {
     );
   }
 
+  // If invited member activation timed out, redirect to onboarding
+  // This handles cases where no pending membership exists
+  if (isInvitedMember && !organization && activationTimeout) {
+    console.log("Invited member has no valid pending membership - redirecting to onboarding");
+    return <Navigate to="/onboarding" replace />;
+  }
+
   // Redirect pending members (self-registered) to pending approval page
   if (pendingOrganization && !organization) {
     return <Navigate to="/pending-approval" replace />;
   }
 
-  // Redirect users without org to onboarding (only for non-invited users)
+  // Redirect users without org to onboarding
   if (!organization) {
     return <Navigate to="/onboarding" replace />;
   }
