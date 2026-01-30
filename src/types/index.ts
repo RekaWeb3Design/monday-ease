@@ -89,3 +89,47 @@ export interface UserIntegration {
   created_at: string | null;
   updated_at: string | null;
 }
+
+// Board config from database (board_configs table)
+export interface BoardConfig {
+  id: string;
+  organization_id: string;
+  monday_board_id: string;
+  board_name: string;
+  filter_column_id: string | null;
+  filter_column_name: string | null;
+  visible_columns: string[];
+  is_active: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+// Member board access from database (member_board_access table)
+export interface MemberBoardAccess {
+  id: string;
+  board_config_id: string;
+  member_id: string;
+  filter_value: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+// Monday.com board from API
+export interface MondayBoard {
+  id: string;
+  name: string;
+  board_kind: string;
+  columns: MondayColumn[];
+}
+
+// Monday.com column from API
+export interface MondayColumn {
+  id: string;
+  title: string;
+  type: string;
+}
+
+// Board config with member access (for UI)
+export interface BoardConfigWithAccess extends BoardConfig {
+  memberAccess: MemberBoardAccess[];
+}

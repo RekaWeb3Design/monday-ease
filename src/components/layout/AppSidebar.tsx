@@ -7,6 +7,7 @@ import {
   Settings,
   ChevronsLeft,
   ChevronsRight,
+  LayoutGrid,
 } from "lucide-react";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 import { NavLink } from "@/components/NavLink";
@@ -36,10 +37,16 @@ const navItems: NavItem[] = [
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
+// Owner-only nav items
+const ownerNavItems: NavItem[] = [
+  { title: "Boards", url: "/boards", icon: LayoutGrid },
+];
+
 export function AppSidebar() {
   const { state, toggleSidebar } = useSidebar();
-  const { profile } = useAuth();
+  const { profile, memberRole } = useAuth();
   const isCollapsed = state === "collapsed";
+  const isOwner = memberRole === "owner";
 
   const displayName = profile?.full_name || profile?.email?.split("@")[0] || "User";
   const avatarInitial = displayName.charAt(0).toUpperCase();
@@ -81,6 +88,22 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              {/* Owner-only nav items */}
+              {isOwner &&
+                ownerNavItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild tooltip={item.title}>
+                      <NavLink
+                        to={item.url}
+                        className="flex items-center gap-3 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        activeClassName="bg-sidebar-accent text-primary font-medium"
+                      >
+                        <item.icon className="h-5 w-5 shrink-0" />
+                        <span>{item.title}</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

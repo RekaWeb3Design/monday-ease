@@ -12,6 +12,7 @@ import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
 import Organization from "./pages/Organization";
 import Integrations from "./pages/Integrations";
+import BoardConfig from "./pages/BoardConfig";
 import OAuthCallback from "./pages/OAuthCallback";
 import NotFound from "./pages/NotFound";
 
@@ -65,6 +66,18 @@ const App = () => (
                   <RequireOrganization>
                     <AppLayout pageTitle="Integrations">
                       <Integrations />
+                    </AppLayout>
+                  </RequireOrganization>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/boards"
+              element={
+                <ProtectedRoute>
+                  <RequireOrganization>
+                    <AppLayout pageTitle="Board Configuration">
+                      <BoardConfig />
                     </AppLayout>
                   </RequireOrganization>
                 </ProtectedRoute>
