@@ -72,6 +72,7 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
         throw new Error("Organization or user not available");
       }
 
+      // Step 1: Insert member record
       const { error: insertError } = await supabase
         .from("organization_members")
         .insert({
@@ -93,10 +94,50 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
         throw insertError;
       }
 
-      toast({
-        title: "Invitation Sent",
-        description: `${displayName} has been invited to join your organization.`,
-      });
+      // Step 2: Get inviter's name from profile
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("full_name")
+        .eq("id", user.id)
+        .single();
+
+      const inviterName = profile?.full_name || user.email?.split("@")[0] || "A team member";
+
+      // Step 3: Send invite email via edge function
+      try {
+        const { data: emailResult, error: emailError } = await supabase.functions.invoke(
+          "send-invite-email",
+          {
+            body: {
+              email: email.toLowerCase().trim(),
+              displayName: displayName.trim(),
+              organizationName: organization.name,
+              inviterName,
+            },
+          }
+        );
+
+        if (emailError) {
+          console.error("Email send error:", emailError);
+          toast({
+            title: "Member Added",
+            description: `${displayName} was added but the invitation email could not be sent. They can still sign up manually.`,
+            variant: "default",
+          });
+        } else {
+          toast({
+            title: "Invitation Sent",
+            description: `${displayName} has been invited to join your organization.`,
+          });
+        }
+      } catch (emailErr) {
+        console.error("Email send exception:", emailErr);
+        toast({
+          title: "Member Added",
+          description: `${displayName} was added but the invitation email could not be sent.`,
+          variant: "default",
+        });
+      }
 
       await fetchMembers();
     },
