@@ -1,118 +1,254 @@
 
 
-# Fix Custom Board Views - Data Corruption Resolution
+# Add Column Filters to Custom Board View Page
 
-## Confirmed Issue
+## Overview
 
-The database check confirms the bug:
-
-| Field | Expected Type | Actual Type |
-|-------|---------------|-------------|
-| `selected_columns` | array | string |
-| `settings` | object | string |
-
-This causes `selectedColumns.map is not a function` in the edge function because it receives a string instead of an array.
+Add a client-side filtering system to the Custom View page that allows users to filter data by column values. Filters appear below the search bar when `settings.enable_filters` is true, with different filter types based on column data type.
 
 ---
 
-## Fix Strategy
+## Implementation Details
 
-### Step 1: Fix Corrupted Database Records
+### File to Modify: `src/pages/CustomViewPage.tsx`
 
-Run a SQL migration to convert the double-encoded strings back to proper JSONB:
+#### 1. Add Filter State
 
-```sql
--- Fix selected_columns stored as strings
-UPDATE public.custom_board_views 
-SET selected_columns = (selected_columns #>> '{}')::jsonb
-WHERE jsonb_typeof(selected_columns) = 'string';
-
--- Fix settings stored as strings
-UPDATE public.custom_board_views 
-SET settings = (settings #>> '{}')::jsonb
-WHERE jsonb_typeof(settings) = 'string';
-```
-
-### Step 2: Fix the Hook to Prevent Future Corruption
-
-**File:** `src/hooks/useCustomBoardViews.ts`
-
-Remove `JSON.stringify()` calls that cause double-encoding:
+Add a new state variable to track active filters:
 
 ```typescript
-// Line 126-127 in createView function
-// BEFORE:
-selected_columns: JSON.stringify(data.selected_columns),
-settings: JSON.stringify(data.settings),
-
-// AFTER:
-selected_columns: data.selected_columns,
-settings: data.settings,
+const [filters, setFilters] = useState<Record<string, string>>({});
 ```
 
-### Step 3: Add Defensive Parsing in Edge Function
+#### 2. Extract Unique Filter Options
 
-**File:** `supabase/functions/get-board-view-data/index.ts`
-
-Add type checking to handle both formats (for backward compatibility):
+Create a `useMemo` hook to extract unique values from current items for each filterable column:
 
 ```typescript
-// Parse selected_columns - handle both string and array
-let selectedColumns: ViewColumn[] = [];
-if (typeof view.selected_columns === 'string') {
-  try {
-    selectedColumns = JSON.parse(view.selected_columns);
-  } catch {
-    console.error('[get-board-view-data] Failed to parse selected_columns');
-    selectedColumns = [];
-  }
-} else {
-  selectedColumns = view.selected_columns || [];
-}
-
-// Parse settings - handle both string and object
-const defaultSettings: ViewSettings = {
-  show_item_name: true,
-  row_height: 'default',
-  enable_search: true,
-  enable_filters: true,
-  default_sort_column: null,
-  default_sort_order: 'asc',
-};
-
-let settings: ViewSettings = { ...defaultSettings };
-if (typeof view.settings === 'string') {
-  try {
-    settings = { ...defaultSettings, ...JSON.parse(view.settings) };
-  } catch {
-    console.error('[get-board-view-data] Failed to parse settings');
-  }
-} else if (view.settings) {
-  settings = { ...defaultSettings, ...view.settings };
-}
+const filterOptions = useMemo(() => {
+  const options: Record<string, { value: string; label: string; color?: string }[]> = {};
+  
+  columns.forEach(col => {
+    const uniqueValues = new Map<string, { label: string; color?: string }>();
+    
+    items.forEach(item => {
+      const cellValue = item.column_values[col.id];
+      if (cellValue?.text || cellValue?.label) {
+        const key = cellValue.label || cellValue.text || '';
+        if (key && !uniqueValues.has(key)) {
+          uniqueValues.set(key, {
+            label: key,
+            color: cellValue.label_style?.color
+          });
+        }
+      }
+    });
+    
+    if (uniqueValues.size > 0 && uniqueValues.size <= 20) {
+      options[col.id] = Array.from(uniqueValues.entries())
+        .map(([value, meta]) => ({ value, ...meta }));
+    }
+  });
+  
+  return options;
+}, [columns, items]);
 ```
 
-### Step 4: Redeploy Edge Function
+#### 3. Filter Items Client-Side
 
-Deploy the updated `get-board-view-data` function to apply the fixes.
+Filter the items array before passing to the table:
+
+```typescript
+const filteredItems = useMemo(() => {
+  if (Object.keys(filters).length === 0) return items;
+  
+  return items.filter(item => {
+    return Object.entries(filters).every(([columnId, filterValue]) => {
+      if (!filterValue || filterValue === 'all') return true;
+      
+      const cellValue = item.column_values[columnId];
+      const column = columns.find(c => c.id === columnId);
+      
+      // Date column special handling
+      if (column?.type === 'date') {
+        if (!cellValue?.text) return filterValue === 'none';
+        const date = parseISO(cellValue.text);
+        if (filterValue === 'overdue') return isPast(date) && !isToday(date);
+        if (filterValue === 'today') return isToday(date);
+        if (filterValue === 'this_week') return isThisWeek(date);
+        return true;
+      }
+      
+      // Status/dropdown - exact match
+      const displayValue = cellValue?.label || cellValue?.text || '';
+      return displayValue === filterValue;
+    });
+  });
+}, [items, filters, columns]);
+```
+
+#### 4. Create Filter Bar Component
+
+Render a filter bar with dropdowns for each filterable column:
+
+```tsx
+{/* Filter bar */}
+{settings.enable_filters && Object.keys(filterOptions).length > 0 && (
+  <div className="flex flex-wrap items-center gap-2">
+    {columns.map(col => {
+      const options = filterOptions[col.id];
+      if (!options) return null;
+      
+      const isDateColumn = col.type === 'date';
+      
+      if (isDateColumn) {
+        return (
+          <Select
+            key={col.id}
+            value={filters[col.id] || 'all'}
+            onValueChange={(v) => setFilters(prev => ({ ...prev, [col.id]: v }))}
+          >
+            <SelectTrigger className="h-8 w-[130px]">
+              <SelectValue placeholder={col.title} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="overdue">Overdue</SelectItem>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="this_week">This Week</SelectItem>
+            </SelectContent>
+          </Select>
+        );
+      }
+      
+      const isStatusColumn = col.type === 'status' || col.type === 'color';
+      
+      return (
+        <Select
+          key={col.id}
+          value={filters[col.id] || 'all'}
+          onValueChange={(v) => setFilters(prev => ({ ...prev, [col.id]: v }))}
+        >
+          <SelectTrigger className="h-8 min-w-[120px] max-w-[180px]">
+            <SelectValue placeholder={col.title} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All {col.title}</SelectItem>
+            {options.map(opt => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {isStatusColumn && opt.color ? (
+                  <div className="flex items-center gap-2">
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ backgroundColor: opt.color }}
+                    />
+                    {opt.label}
+                  </div>
+                ) : (
+                  opt.label
+                )}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      );
+    })}
+    
+    {/* Clear Filters Button */}
+    {activeFilterCount > 0 && (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8"
+        onClick={() => setFilters({})}
+      >
+        Clear Filters
+        <Badge variant="secondary" className="ml-1 h-5 px-1.5">
+          {activeFilterCount}
+        </Badge>
+      </Button>
+    )}
+  </div>
+)}
+```
+
+#### 5. Calculate Active Filter Count
+
+```typescript
+const activeFilterCount = useMemo(() => {
+  return Object.values(filters).filter(v => v && v !== 'all').length;
+}, [filters]);
+```
+
+#### 6. Update Table Data Source
+
+Pass `filteredItems` instead of `items` to the table and update the count display:
+
+```tsx
+<ViewDataTable
+  columns={columns}
+  items={filteredItems}  // Changed from items
+  settings={settings}
+  // ... rest of props
+/>
+
+// Update footer count
+<p className="text-sm text-muted-foreground">
+  Showing {filteredItems.length} of {totalCount} items
+  {activeFilterCount > 0 && ` (${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''} active)`}
+</p>
+```
 
 ---
 
-## Files to Modify
+## New Imports Required
 
-| File | Change |
-|------|--------|
-| Database | Migration to fix corrupted JSONB data |
-| `src/hooks/useCustomBoardViews.ts` | Remove `JSON.stringify()` on lines 126-127 |
-| `supabase/functions/get-board-view-data/index.ts` | Add robust JSONB parsing (lines ~186-200) |
+```typescript
+import { isThisWeek } from "date-fns";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+```
 
 ---
 
-## Verification After Fix
+## Filter Type Logic Summary
 
-1. Check database: `jsonb_typeof(selected_columns)` should return `'array'`
-2. Navigate to `/board-views/teszt-client-error`
-3. Verify data loads from Monday.com without errors
-4. Create a new view to confirm hook fix works
-5. Check edge function logs for successful execution
+| Column Type | Filter UI | Filter Logic |
+|-------------|-----------|--------------|
+| `status`, `color` | Dropdown with colored dots | Exact match on label |
+| `date` | Quick filters dropdown | Date range comparison |
+| `dropdown` | Dropdown with unique values | Exact match on text |
+| Other (text, etc.) | Shown if <= 20 unique values | Exact match |
+
+---
+
+## UI Layout (Final)
+
+```text
++------------------------------------------+
+| [Search items...                    ] 🔍  |
++------------------------------------------+
+| [Status: All ▼] [Priority: All ▼] [Due: All ▼] [Clear Filters (2)] |
++------------------------------------------+
+| Table...                                 |
++------------------------------------------+
+| Showing 12 of 50 items (2 filters active)|
++------------------------------------------+
+```
+
+---
+
+## Notes
+
+- Filters are client-side only (no edge function changes)
+- Filter options are auto-detected from current page data
+- Columns with > 20 unique values are excluded from dropdowns
+- Empty string values use 'all' as the value (per Radix UI constraint)
+- Status columns show colored indicator dots in dropdown
+- Date columns have predefined quick filter options
 
