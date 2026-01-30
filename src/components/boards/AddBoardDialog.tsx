@@ -82,7 +82,14 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     return selectedBoard.columns.find((c) => c.id === filterColumnId) || null;
   }, [selectedBoard, filterColumnId]);
 
-  const isPersonColumn = selectedFilterColumn?.type === 'people' || selectedFilterColumn?.type === 'person';
+  // More robust person column detection
+  const isPersonColumn = useMemo(() => {
+    if (!selectedFilterColumn) return false;
+    const type = selectedFilterColumn.type?.toLowerCase() || '';
+    const id = filterColumnId?.toLowerCase() || '';
+    return type.includes('person') || type.includes('people') || 
+           id.includes('person') || id.includes('people');
+  }, [selectedFilterColumn, filterColumnId]);
 
   // Fetch boards when dialog opens
   useEffect(() => {
@@ -387,8 +394,11 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
                     <div className="space-y-3">
                       {mappableMembers.map((member) => (
                         <div key={member.id} className="space-y-1.5">
-                          <Label className="text-sm font-normal">
-                            {member.display_name || member.email}
+                          <Label className="text-sm font-normal flex flex-col">
+                            <span>{member.display_name || member.email}</span>
+                            {member.display_name && (
+                              <span className="text-xs text-muted-foreground font-normal">{member.email}</span>
+                            )}
                           </Label>
                           {isPersonColumn ? (
                             <Popover

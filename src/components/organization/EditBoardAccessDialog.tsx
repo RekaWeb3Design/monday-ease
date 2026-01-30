@@ -45,6 +45,7 @@ interface EditBoardAccessDialogProps {
 interface BoardAccessState {
   boardConfigId: string;
   boardName: string;
+  filterColumnId: string | null;
   filterColumnName: string | null;
   filterColumnType: string | null;
   filterValue: string;
@@ -69,10 +70,31 @@ export function EditBoardAccessDialog({
 
   const displayName = member?.display_name || member?.email?.split("@")[0] || "Member";
 
+  // Helper to detect person column type (more permissive)
+  const isPersonColumnType = (type: string | null, columnId: string | null, columnName: string | null): boolean => {
+    // Check explicit type
+    if (type) {
+      const lowerType = type.toLowerCase();
+      if (lowerType.includes('person') || lowerType.includes('people')) return true;
+    }
+    // Infer from column ID (Monday.com often encodes type in ID)
+    if (columnId) {
+      const lowerId = columnId.toLowerCase();
+      if (lowerId.includes('person') || lowerId.includes('people')) return true;
+    }
+    // Infer from column name as fallback
+    if (columnName) {
+      const lowerName = columnName.toLowerCase();
+      if (lowerName.includes('assigned') || lowerName.includes('agent') || 
+          lowerName.includes('owner') || lowerName.includes('person')) return true;
+    }
+    return false;
+  };
+
   // Check if any board has a person filter column
   const hasPersonColumn = useMemo(() => {
     return boardAccessList.some((access) => 
-      access.filterColumnType === "people" || access.filterColumnType === "person"
+      isPersonColumnType(access.filterColumnType, access.filterColumnId, access.filterColumnName)
     );
   }, [boardAccessList]);
 
@@ -128,12 +150,18 @@ export function EditBoardAccessDialog({
           return {
             boardConfigId: config.id,
             boardName: config.board_name,
+            filterColumnId: config.filter_column_id,
             filterColumnName: config.filter_column_name,
             filterColumnType: config.filter_column_type,
             filterValue: existing?.filterValue || "",
             existingAccessId: existing?.id || null,
           };
         });
+
+        console.log("[EditBoardAccess] Board access list:", accessList);
+        console.log("[EditBoardAccess] Has person column:", accessList.some((a) => 
+          isPersonColumnType(a.filterColumnType, a.filterColumnId, a.filterColumnName)
+        ));
 
         setBoardAccessList(accessList);
       } catch (err) {
@@ -222,14 +250,17 @@ export function EditBoardAccessDialog({
     }
   };
 
-  // Check if column type is person/people
-  const isPersonColumn = (type: string | null) => {
-    return type === "people" || type === "person";
-  };
+  // Check if this access item uses a person column
+  const isPersonAccess = (access: BoardAccessState) => 
+    isPersonColumnType(access.filterColumnType, access.filterColumnId, access.filterColumnName);
 
   // Render filter value input based on column type
   const renderFilterInput = (access: BoardAccessState) => {
-    if (isPersonColumn(access.filterColumnType)) {
+    const isPerson = isPersonColumnType(access.filterColumnType, access.filterColumnId, access.filterColumnName);
+    console.log(`[EditBoardAccess] Board "${access.boardName}" isPerson:`, isPerson, 
+      `type:${access.filterColumnType} id:${access.filterColumnId} name:${access.filterColumnName}`);
+    
+    if (isPerson) {
       // Render Combobox for person columns
       const selectedUser = mondayUsers.find((u) => u.name === access.filterValue);
       const isOpen = openPopovers[access.boardConfigId] || false;
@@ -375,7 +406,7 @@ export function EditBoardAccessDialog({
                       </Label>
                       {renderFilterInput(access)}
                       <p className="text-xs text-muted-foreground">
-                        {isPersonColumn(access.filterColumnType)
+                        {isPersonAccess(access)
                           ? "Select a person or leave empty to remove access"
                           : "Leave empty to remove access to this board"}
                       </p>
