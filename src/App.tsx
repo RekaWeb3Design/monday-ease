@@ -6,10 +6,12 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { RequireOrganization } from "@/components/auth/RequireOrganization";
+import { DashboardRedirect } from "@/components/auth/DashboardRedirect";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Auth from "./pages/Auth";
 import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
+import MemberDashboard from "./pages/MemberDashboard";
 import Organization from "./pages/Organization";
 import Integrations from "./pages/Integrations";
 import BoardConfig from "./pages/BoardConfig";
@@ -40,8 +42,18 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <RequireOrganization>
-                    <AppLayout pageTitle="Dashboard">
-                      <Dashboard />
+                    <DashboardRedirect />
+                  </RequireOrganization>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/member"
+              element={
+                <ProtectedRoute>
+                  <RequireOrganization>
+                    <AppLayout pageTitle="My Tasks">
+                      <MemberDashboard />
                     </AppLayout>
                   </RequireOrganization>
                 </ProtectedRoute>
