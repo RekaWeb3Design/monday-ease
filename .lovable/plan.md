@@ -1,287 +1,374 @@
 
-# Fix: Invited Members See "Create Organization" Instead of Member Dashboard
 
-## Problem Summary
+## Member Dashboard Implementation
 
-When an invited member clicks the email link and lands on `/auth`, they are immediately redirected to `/` (then to `/onboarding`) because:
-
-1. **Auth page auto-redirects**: Lines 52-56 in `Auth.tsx` redirect ANY logged-in user to `/` immediately
-2. **No invite detection**: The page doesn't check if user came from an invitation
-3. **No password-setting flow**: Invited users have no dedicated form to set their password
-4. **No membership activation**: Nobody updates `organization_members.status` from `pending` to `active`
+### Overview
+Create a simplified dashboard for team members (non-owners) to view their filtered tasks from Monday.com based on their assigned board access and filter values.
 
 ---
 
-## Solution Overview
-
-Modify the `/auth` page to detect invited users and show a dedicated "Set Your Password" flow that activates their membership before redirecting to the member dashboard.
-
----
-
-## Implementation Steps
-
-### Step 1: Add Invited User Detection State
-
-Add state and effect to detect if the current user is an invited member:
+### Architecture
 
 ```text
-New state variables:
-- isInvitedUser: boolean
-- invitedOrganizationId: string | null
-- isActivatingMembership: boolean
-- activationError: string
-
-Detection logic (in useEffect):
-- Check user.user_metadata.invited_to_organization
-- If present, set isInvitedUser = true
-- Show "Set Your Password" form instead of normal tabs
-```
-
-### Step 2: Create "Set Your Password" Form
-
-Add a new form component that appears for invited users:
-
-```text
-Form fields:
-- New Password (with visibility toggle)
-- Confirm Password (with visibility toggle)
-
-Validation:
-- Passwords must match
-- Minimum 6 characters
-```
-
-### Step 3: Implement Password Update + Membership Activation
-
-After password is set successfully:
-
-```text
-1. Call supabase.auth.updateUser({ password: newPassword })
-
-2. Query organization_members to find the pending record:
-   - Match by email (user.email)
-   - AND organization_id = invited_to_organization (from metadata)
-   - AND status = 'pending'
-
-3. If found:
-   - Update status to 'active'
-   - Set joined_at to now()
-   - Update user_id to current user's id
-   - Redirect to /member
-
-4. If not found:
-   - Log error (this shouldn't happen)
-   - Redirect to /onboarding as fallback
-```
-
-### Step 4: Modify Redirect Logic
-
-Update the existing useEffect that redirects logged-in users:
-
-```text
-Current (problematic):
-if (!loading && user) {
-  navigate("/", { replace: true });
-}
-
-New logic:
-if (!loading && user) {
-  // Check if this is an invited user who needs to set password
-  const invitedOrgId = user.user_metadata?.invited_to_organization;
-  
-  if (invitedOrgId) {
-    // Don't redirect - show password setup form
-    setIsInvitedUser(true);
-    setInvitedOrganizationId(invitedOrgId);
-    return;
-  }
-  
-  // Normal user - redirect to dashboard
-  navigate("/", { replace: true });
-}
+┌─────────────────────────────────────────────────────────────────────┐
+│                       MemberDashboard Page                          │
+│  /member (protected, accessible to all roles)                       │
+├─────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ Header: "My Tasks"                                           │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │                      TaskStats                               │   │
+│  │  [Total: 12]    [In Progress: 5]    [Done: 7]               │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │  TaskCard    │  │  TaskCard    │  │  TaskCard    │   ...        │
+│  │  - Name      │  │  - Name      │  │  - Name      │              │
+│  │  - Board     │  │  - Board     │  │  - Board     │              │
+│  │  - Status    │  │  - Status    │  │  - Status    │              │
+│  └──────────────┘  └──────────────┘  └──────────────┘              │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │        Empty State (if no tasks assigned)                    │   │
+│  │  "No tasks assigned to you yet" + friendly message           │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Files to Modify
+### Files to Create
 
-| File | Changes |
+| File | Purpose |
 |------|---------|
-| `src/pages/Auth.tsx` | Add invited user detection, password setup form, membership activation logic |
+| `src/pages/MemberDashboard.tsx` | Main member dashboard page |
+| `src/hooks/useMemberTasks.ts` | Hook to fetch tasks from edge function |
+| `src/components/member/TaskCard.tsx` | Card displaying individual task |
+| `src/components/member/TaskStats.tsx` | Stats cards showing task counts |
+
+### Files to Modify
+
+| File | Change |
+|------|--------|
+| `src/components/layout/AppSidebar.tsx` | Update nav for member vs owner roles |
+| `src/App.tsx` | Add route for `/member` |
+| `src/types/index.ts` | Add MondayTask type |
 
 ---
 
-## UI Flow for Invited Users
+### Implementation Details
 
-```text
-1. User clicks invite link in email
-           ↓
-2. Supabase verifies token, creates session
-           ↓
-3. Redirect to /auth with logged-in user
-           ↓
-4. Auth page detects invited_to_organization in user_metadata
-           ↓
-5. Shows "Set Your Password" card (not tabs)
-   - Welcome message with their name
-   - New password field
-   - Confirm password field
-   - "Complete Setup" button
-           ↓
-6. User sets password
-           ↓
-7. supabase.auth.updateUser({ password })
-           ↓
-8. Query organization_members by email + org_id + status='pending'
-           ↓
-9. Update record: status='active', joined_at=now(), user_id=user.id
-           ↓
-10. Redirect to /member dashboard
-```
+#### 1. Types (`src/types/index.ts`)
 
----
-
-## Technical Details
-
-### Detection Logic
+Add new types for Monday.com tasks:
 
 ```typescript
-// In Auth.tsx useEffect
-useEffect(() => {
-  if (!loading && user) {
-    const invitedOrgId = user.user_metadata?.invited_to_organization;
-    
-    if (invitedOrgId) {
-      // This is an invited user - show password setup
-      setIsInvitedUser(true);
-      setInvitedOrganizationId(invitedOrgId);
-    } else {
-      // Normal authenticated user - go to dashboard
-      navigate("/", { replace: true });
-    }
-  }
-}, [user, loading, navigate]);
+// Monday.com task item from API
+export interface MondayTask {
+  id: string;
+  name: string;
+  board_id: string;
+  board_name: string;
+  column_values: MondayColumnValue[];
+  created_at: string;
+  updated_at: string;
+}
+
+// Column value from Monday.com
+export interface MondayColumnValue {
+  id: string;
+  title: string;
+  type: string;
+  text: string | null;
+  value: any;
+}
 ```
 
-### Password Setup Handler
+#### 2. useMemberTasks Hook (`src/hooks/useMemberTasks.ts`)
+
+Hook that calls the `get-member-tasks` Edge Function:
 
 ```typescript
-const handleSetPassword = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setActivationError("");
+import { useState, useCallback, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import type { MondayTask } from "@/types";
 
-  // Validate passwords match
-  if (newPassword !== confirmNewPassword) {
-    setActivationError("Passwords do not match");
-    return;
-  }
+interface UseMemberTasksReturn {
+  tasks: MondayTask[];
+  isLoading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+}
 
-  if (newPassword.length < 6) {
-    setActivationError("Password must be at least 6 characters");
-    return;
-  }
+export function useMemberTasks(): UseMemberTasksReturn {
+  // State for tasks, loading, error
+  // fetchTasks function that:
+  //   1. Gets JWT token from supabase.auth.getSession()
+  //   2. Calls https://yqjugovqhvxoxvrceqqp.supabase.co/functions/v1/get-member-tasks
+  //   3. Passes Authorization: Bearer {token} header
+  //   4. Returns tasks array or shows error toast
+  // Auto-fetch on mount via useEffect
+  // Return { tasks, isLoading, error, refetch }
+}
+```
 
-  setIsActivatingMembership(true);
+#### 3. TaskStats Component (`src/components/member/TaskStats.tsx`)
+
+Stats cards showing task counts by status:
+
+```typescript
+interface TaskStatsProps {
+  tasks: MondayTask[];
+}
+
+export function TaskStats({ tasks }: TaskStatsProps) {
+  // Calculate stats from tasks:
+  // - Total Tasks count
+  // - Group by status column if exists
+  // - Show In Progress, Done counts
   
-  try {
-    // Update password
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: newPassword,
-    });
-    
-    if (updateError) throw updateError;
-
-    // Find and activate membership
-    const { data: member, error: memberError } = await supabase
-      .from("organization_members")
-      .select("id")
-      .eq("email", user.email)
-      .eq("organization_id", invitedOrganizationId)
-      .eq("status", "pending")
-      .single();
-
-    if (memberError || !member) {
-      console.error("No pending membership found:", memberError);
-      navigate("/onboarding", { replace: true });
-      return;
-    }
-
-    // Activate membership
-    const { error: activateError } = await supabase
-      .from("organization_members")
-      .update({
-        status: "active",
-        user_id: user.id,
-        joined_at: new Date().toISOString(),
-      })
-      .eq("id", member.id);
-
-    if (activateError) throw activateError;
-
-    // Clear the invited metadata (optional)
-    await supabase.auth.updateUser({
-      data: { invited_to_organization: null },
-    });
-
-    // Redirect to member dashboard
-    navigate("/member", { replace: true });
-    
-  } catch (err) {
-    setActivationError(err.message || "Failed to complete setup");
-  } finally {
-    setIsActivatingMembership(false);
-  }
-};
+  return (
+    <div className="grid gap-4 sm:grid-cols-3">
+      <Card>
+        <CardHeader>Total Tasks</CardHeader>
+        <CardContent>{total}</CardContent>
+      </Card>
+      {/* Additional status-based cards */}
+    </div>
+  );
+}
 ```
 
-### UI Component for Invited Users
+#### 4. TaskCard Component (`src/components/member/TaskCard.tsx`)
+
+Card displaying individual task:
 
 ```typescript
-// Render this instead of Tabs when isInvitedUser is true
-{isInvitedUser ? (
-  <Card>
-    <CardHeader className="text-center">
-      <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-        <UserPlus className="h-6 w-6 text-primary" />
+interface TaskCardProps {
+  task: MondayTask;
+}
+
+export function TaskCard({ task }: TaskCardProps) {
+  // Helper to find status column value
+  // Helper to get status color based on value
+  
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle>{task.name}</CardTitle>
+          <Badge>{task.board_name}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {/* Display visible column values */}
+        {/* Status badge with color */}
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+#### 5. MemberDashboard Page (`src/pages/MemberDashboard.tsx`)
+
+Main dashboard page:
+
+```typescript
+export default function MemberDashboard() {
+  const { profile } = useAuth();
+  const { tasks, isLoading, error, refetch } = useMemberTasks();
+
+  const displayName = profile?.full_name || "there";
+
+  // Loading state with spinner
+  if (isLoading) {
+    return <LoadingSpinner />;
+  }
+
+  // Empty state if no tasks
+  if (tasks.length === 0) {
+    return (
+      <div className="space-y-6">
+        <Header />
+        <EmptyState
+          title="No tasks assigned to you yet"
+          description="Once your team owner assigns you to tasks, they'll appear here."
+        />
       </div>
-      <CardTitle>Welcome to the Team!</CardTitle>
-      <CardDescription>
-        Set your password to complete your account setup
-      </CardDescription>
-    </CardHeader>
-    <CardContent>
-      <form onSubmit={handleSetPassword} className="space-y-4">
-        {/* Password fields */}
-        <Button type="submit" className="w-full">
-          {isActivatingMembership ? "Setting up..." : "Complete Setup"}
-        </Button>
-      </form>
-    </CardContent>
-  </Card>
-) : (
-  // Existing Tabs for sign in/sign up
-)}
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold">My Tasks</h1>
+        <p className="text-muted-foreground">
+          Welcome back, {displayName}! Here are your assigned tasks.
+        </p>
+      </div>
+
+      {/* Stats row */}
+      <TaskStats tasks={tasks} />
+
+      {/* Task grid */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {tasks.map((task) => (
+          <TaskCard key={task.id} task={task} />
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+#### 6. AppSidebar Update (`src/components/layout/AppSidebar.tsx`)
+
+Update navigation based on user role:
+
+```typescript
+// Define base nav items (available to all)
+const baseNavItems: NavItem[] = [
+  { title: "Settings", url: "/settings", icon: Settings },
+];
+
+// Owner nav items
+const ownerNavItems: NavItem[] = [
+  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Organization", url: "/organization", icon: Building2 },
+  { title: "Integrations", url: "/integrations", icon: Plug },
+  { title: "Boards", url: "/boards", icon: LayoutGrid },
+  { title: "Templates", url: "/templates", icon: Zap },
+  { title: "Activity", url: "/activity", icon: Activity },
+];
+
+// Member nav items
+const memberNavItems: NavItem[] = [
+  { title: "My Tasks", url: "/member", icon: ClipboardList },
+];
+
+// In render:
+const displayNavItems = isOwner 
+  ? [...ownerNavItems, ...baseNavItems]
+  : [...memberNavItems, ...baseNavItems];
+```
+
+#### 7. App.tsx Update
+
+Add route for member dashboard and auto-redirect logic:
+
+```typescript
+// Add import
+import MemberDashboard from "./pages/MemberDashboard";
+
+// Add route before catch-all:
+<Route
+  path="/member"
+  element={
+    <ProtectedRoute>
+      <RequireOrganization>
+        <AppLayout pageTitle="My Tasks">
+          <MemberDashboard />
+        </AppLayout>
+      </RequireOrganization>
+    </ProtectedRoute>
+  }
+/>
+
+// Modify "/" route to use a smart redirect component:
+<Route
+  path="/"
+  element={
+    <ProtectedRoute>
+      <RequireOrganization>
+        <DashboardRedirect />
+      </RequireOrganization>
+    </ProtectedRoute>
+  }
+/>
+```
+
+#### 8. Create DashboardRedirect Component
+
+Component that redirects based on role:
+
+```typescript
+// src/components/auth/DashboardRedirect.tsx
+import { Navigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { Loader2 } from "lucide-react";
+
+export function DashboardRedirect() {
+  const { memberRole, loading } = useAuth();
+
+  if (loading) {
+    return <LoadingSpinner />;
+  }
+
+  // Members go to /member, owners go to dashboard
+  if (memberRole !== "owner") {
+    return <Navigate to="/member" replace />;
+  }
+
+  // Owners see the main dashboard
+  return (
+    <AppLayout pageTitle="Dashboard">
+      <Dashboard />
+    </AppLayout>
+  );
+}
 ```
 
 ---
 
-## Edge Cases Handled
+### Status Badge Colors
 
-| Scenario | Handling |
-|----------|----------|
-| User already activated | They won't have `invited_to_organization` in metadata (cleared after activation) |
-| Membership record not found | Fallback redirect to `/onboarding` with error logged |
-| Password update fails | Show error message, allow retry |
-| User refreshes page mid-flow | Detection re-runs, shows password form again |
+The TaskCard will use consistent colors for status badges:
+
+| Status | Color | Tailwind Class |
+|--------|-------|----------------|
+| Done / Completed | Green (#01cb72) | `bg-[#01cb72] text-white` |
+| In Progress / Working | Yellow (#ffcd03) | `bg-[#ffcd03] text-black` |
+| Stuck / Blocked | Red (#fb275d) | `bg-[#fb275d] text-white` |
+| Default | Gray | `bg-gray-100 text-gray-800` |
 
 ---
 
-## Testing Checklist
+### Edge Function Dependency
 
-After implementation:
-1. Invite a new member from Organization page
-2. Check email arrives with correct invite link
-3. Click link - should land on `/auth` with "Set Your Password" form
-4. Set password - should redirect to `/member` dashboard
-5. Verify `organization_members` record has `status: active` and `joined_at` set
-6. Sign out and sign back in - should go to `/member` (not show password form again)
+The implementation assumes the `get-member-tasks` Edge Function exists at:
+`https://yqjugovqhvxoxvrceqqp.supabase.co/functions/v1/get-member-tasks`
+
+Expected behavior:
+- Accepts JWT in Authorization header
+- Identifies calling member from token
+- Looks up member's board access in `member_board_access`
+- Uses OWNER's Monday.com token to fetch items
+- Filters items by member's filter_value
+- Returns only visible_columns for each board config
+
+If the Edge Function is not yet deployed, I will create it as part of this implementation.
+
+---
+
+### Technical Notes
+
+**Authentication Flow:**
+1. Member logs in via email/password
+2. JWT token identifies the member
+3. Edge function uses member's org to find owner
+4. Owner's Monday.com token is used for API calls
+5. Items are filtered based on member_board_access table
+
+**Empty State UX:**
+- Friendly message: "No tasks assigned to you yet"
+- Helpful subtext: "Once your team owner assigns you to tasks, they'll appear here."
+- Uses MondayEase logo for branding
+
+**Loading States:**
+- Full page loader while fetching tasks
+- Skeleton cards could be used for smoother UX
+

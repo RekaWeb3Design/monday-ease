@@ -15,7 +15,7 @@ interface UseOrganizationMembersReturn {
 }
 
 export function useOrganizationMembers(): UseOrganizationMembersReturn {
-  const { organization } = useAuth();
+  const { organization, user } = useAuth();
   const { toast } = useToast();
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -68,53 +68,39 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
 
   const inviteMember = useCallback(
     async (email: string, displayName: string) => {
-      if (!organization) {
-        throw new Error("Organization not available");
+      if (!organization || !user) {
+        throw new Error("Organization or user not available");
       }
 
-      try {
-        const { data, error: invokeError } = await supabase.functions.invoke(
-          "invite-member",
-          {
-            body: {
-              email: email.toLowerCase().trim(),
-              displayName: displayName.trim(),
-              organizationId: organization.id,
-            },
-          }
-        );
-
-        if (invokeError) {
-          console.error("Invite function error:", invokeError);
-          toast({
-            title: "Error",
-            description: invokeError.message || "Failed to invite member.",
-            variant: "destructive",
-          });
-          throw invokeError;
-        }
-
-        if (!data?.success) {
-          toast({
-            title: "Error",
-            description: data?.error || "Failed to invite member.",
-            variant: "destructive",
-          });
-          throw new Error(data?.error || "Invite failed");
-        }
-
-        toast({
-          title: "Invitation Sent",
-          description: `${displayName} has been invited to join your organization.`,
+      const { error: insertError } = await supabase
+        .from("organization_members")
+        .insert({
+          organization_id: organization.id,
+          user_id: null,
+          email: email.toLowerCase().trim(),
+          display_name: displayName.trim(),
+          role: "member",
+          status: "pending",
+          invited_at: new Date().toISOString(),
         });
 
-        await fetchMembers();
-      } catch (err) {
-        console.error("Invite member exception:", err);
-        throw err;
+      if (insertError) {
+        toast({
+          title: "Error",
+          description: insertError.message || "Failed to invite member.",
+          variant: "destructive",
+        });
+        throw insertError;
       }
+
+      toast({
+        title: "Invitation Sent",
+        description: `${displayName} has been invited to join your organization.`,
+      });
+
+      await fetchMembers();
     },
-    [organization, toast, fetchMembers]
+    [organization, user, toast, fetchMembers]
   );
 
   const updateMember = useCallback(
