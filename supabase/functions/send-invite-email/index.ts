@@ -15,6 +15,108 @@ interface InviteRequest {
   inviterName: string;
 }
 
+// Using the published app's logo - publicly accessible
+const LOGO_URL = "https://ease-hub-dash.lovable.app/lovable-uploads/db0b20ac-1fbb-4f3b-a685-4bfe47d3d7d1.png";
+
+function generateInviteEmailHtml(
+  displayName: string,
+  organizationName: string,
+  inviterName: string,
+  signUpUrl: string
+): string {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>You're Invited to ${organizationName}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f6f9fc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f6f9fc; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="max-width: 560px;">
+          <!-- Logo Section -->
+          <tr>
+            <td align="center" style="padding-bottom: 32px;">
+              <img src="${LOGO_URL}" width="180" alt="MondayEase" style="display: block; max-width: 180px; height: auto;">
+            </td>
+          </tr>
+          
+          <!-- Main Content Card -->
+          <tr>
+            <td style="background-color: #ffffff; border-radius: 12px; padding: 40px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);">
+              <!-- Heading -->
+              <h1 style="color: #1a1a1a; font-size: 24px; font-weight: 700; text-align: center; margin: 0 0 24px; padding: 0;">
+                Welcome to the team! 🎉
+              </h1>
+              
+              <!-- Greeting -->
+              <p style="color: #4a5568; font-size: 16px; line-height: 26px; margin: 0 0 16px;">
+                Hi <strong>${displayName}</strong>,
+              </p>
+              
+              <!-- Invite Message -->
+              <p style="color: #4a5568; font-size: 16px; line-height: 26px; margin: 0 0 16px;">
+                ${inviterName || 'A team member'} has invited you to join <strong style="color: #01cb72;">${organizationName}</strong> on MondayEase.
+              </p>
+              
+              <!-- Description -->
+              <p style="color: #4a5568; font-size: 16px; line-height: 26px; margin: 0 0 32px;">
+                MondayEase streamlines your Monday.com experience by showing you only the tasks and boards that matter to you. No noise, just your work.
+              </p>
+              
+              <!-- CTA Button -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding: 0 0 32px;">
+                    <a href="${signUpUrl}" style="display: inline-block; background-color: #01cb72; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px;">
+                      Accept Invitation
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              
+              <!-- Fallback Link -->
+              <p style="color: #718096; font-size: 14px; text-align: center; margin: 0 0 8px;">
+                Or copy and paste this link into your browser:
+              </p>
+              <p style="color: #01cb72; font-size: 13px; text-align: center; word-break: break-all; margin: 0;">
+                <a href="${signUpUrl}" style="color: #01cb72;">${signUpUrl}</a>
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="padding-top: 32px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="border-top: 1px solid #e2e8f0; padding-top: 24px;">
+                    <p style="color: #a0aec0; font-size: 12px; line-height: 20px; text-align: center; margin: 0 0 4px;">
+                      This invitation was sent by ${organizationName}.
+                    </p>
+                    <p style="color: #a0aec0; font-size: 12px; line-height: 20px; text-align: center; margin: 0 0 16px;">
+                      If you didn't expect this email, you can safely ignore it.
+                    </p>
+                    <p style="color: #a0aec0; font-size: 12px; text-align: center; margin: 0;">
+                      © ${new Date().getFullYear()} MondayEase. All rights reserved.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -48,6 +150,8 @@ serve(async (req) => {
     console.log("Organization:", organizationName);
     console.log("Sign up URL:", signUpUrl);
 
+    const html = generateInviteEmailHtml(displayName, organizationName, inviterName, signUpUrl);
+
     // Send email using Resend REST API
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -59,52 +163,7 @@ serve(async (req) => {
         from: "MondayEase <noreply@mondayease.com>",
         to: [email],
         subject: `You've been invited to join ${organizationName} on MondayEase`,
-        html: `
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <meta charset="utf-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            </head>
-            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-              <div style="text-align: center; margin-bottom: 30px;">
-                <h1 style="color: #01cb72; margin-bottom: 10px;">MondayEase</h1>
-              </div>
-              
-              <div style="background-color: #f9fafb; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-                <h2 style="margin-top: 0; color: #111827;">Hi ${displayName}!</h2>
-                
-                <p style="color: #4b5563;">
-                  ${inviterName || "A team member"} has invited you to join <strong>${organizationName}</strong> on MondayEase.
-                </p>
-                
-                <p style="color: #4b5563;">
-                  MondayEase streamlines your Monday.com experience by showing you only the tasks and boards relevant to you.
-                </p>
-                
-                <div style="text-align: center; margin: 30px 0;">
-                  <a href="${signUpUrl}" 
-                     style="display: inline-block; background-color: #01cb72; color: white; text-decoration: none; padding: 14px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">
-                    Accept Invitation
-                  </a>
-                </div>
-                
-                <p style="color: #6b7280; font-size: 14px;">
-                  If the button doesn't work, copy and paste this link into your browser:<br>
-                  <a href="${signUpUrl}" style="color: #01cb72;">${signUpUrl}</a>
-                </p>
-              </div>
-              
-              <div style="text-align: center; color: #9ca3af; font-size: 12px;">
-                <p>
-                  This invitation was sent by ${organizationName}.<br>
-                  If you didn't expect this email, you can safely ignore it.
-                </p>
-                <p>&copy; ${new Date().getFullYear()} MondayEase. All rights reserved.</p>
-              </div>
-            </body>
-          </html>
-        `,
+        html,
       }),
     });
 
