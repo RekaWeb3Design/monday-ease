@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
 import {
   LayoutDashboard,
   Building2,
@@ -9,6 +11,8 @@ import {
   ChevronsRight,
   LayoutGrid,
   ClipboardList,
+  Eye,
+  ChevronRight,
 } from "lucide-react";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 import { NavLink } from "@/components/NavLink";
@@ -20,13 +24,24 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/useAuth";
+import { useCustomBoardViews } from "@/hooks/useCustomBoardViews";
+import { getIconByName } from "@/components/board-views/IconPicker";
 import type { NavItem } from "@/types";
 
 // Owner-only nav items (full access)
@@ -49,9 +64,17 @@ const memberNavItems: NavItem[] = [
 export function AppSidebar() {
   const { state, toggleSidebar } = useSidebar();
   const { profile, memberRole } = useAuth();
+  const { views } = useCustomBoardViews();
   const isCollapsed = state === "collapsed";
   const isOwner = memberRole === "owner";
-  
+
+  // Get active views for sidebar (max 5)
+  const activeViews = useMemo(() => {
+    return views.filter((v) => v.is_active).slice(0, 5);
+  }, [views]);
+
+  const hasMoreViews = views.filter((v) => v.is_active).length > 5;
+
   // Select nav items based on role
   const navItems = isOwner ? ownerNavItems : memberNavItems;
 
@@ -98,6 +121,90 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* Board Views Section - shown for all authenticated users */}
+        {activeViews.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="px-3 text-xs font-medium text-sidebar-foreground/60">
+              Board Views
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {activeViews.map((view) => {
+                  const IconComponent = getIconByName(view.icon);
+                  return (
+                    <SidebarMenuItem key={view.id}>
+                      <SidebarMenuButton asChild tooltip={view.name}>
+                        <NavLink
+                          to={`/board-views/${view.slug}`}
+                          className="flex items-center gap-3 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                          activeClassName="bg-sidebar-accent text-primary font-medium"
+                        >
+                          <IconComponent className="h-4 w-4 shrink-0" />
+                          <span className="truncate">{view.name}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+
+                {/* "See all" link when there are more views */}
+                {hasMoreViews && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild tooltip="See all views">
+                      <NavLink
+                        to="/board-views"
+                        className="flex items-center gap-3 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        activeClassName="bg-sidebar-accent text-primary font-medium"
+                      >
+                        <Eye className="h-4 w-4 shrink-0" />
+                        <span className="text-sm">See all views...</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+
+                {/* Management link for owners */}
+                {isOwner && !hasMoreViews && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild tooltip="Manage views">
+                      <NavLink
+                        to="/board-views"
+                        className="flex items-center gap-3 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        activeClassName="bg-sidebar-accent text-primary font-medium"
+                      >
+                        <Settings className="h-4 w-4 shrink-0" />
+                        <span className="text-sm">Manage views</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {/* Show "Board Views" for owners when there are no active views yet */}
+        {isOwner && activeViews.length === 0 && (
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild tooltip="Board Views">
+                    <NavLink
+                      to="/board-views"
+                      className="flex items-center gap-3 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      activeClassName="bg-sidebar-accent text-primary font-medium"
+                    >
+                      <Eye className="h-5 w-5 shrink-0" />
+                      <span>Board Views</span>
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">

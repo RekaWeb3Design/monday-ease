@@ -193,3 +193,66 @@ export interface WorkflowExecution {
   created_at: string | null;
   workflow_templates?: WorkflowTemplate;
 }
+
+// ============== Custom Board Views ==============
+
+// Custom board view configuration
+export interface CustomBoardView {
+  id: string;
+  organization_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  icon: string;
+  monday_board_id: string;
+  monday_board_name: string | null;
+  selected_columns: ViewColumn[];
+  settings: ViewSettings;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ViewColumn {
+  id: string;
+  title: string;
+  type: string;
+  width?: number;
+}
+
+export interface ViewSettings {
+  show_item_name: boolean;
+  row_height: 'compact' | 'default' | 'comfortable';
+  enable_search: boolean;
+  enable_filters: boolean;
+  default_sort_column: string | null;
+  default_sort_order: 'asc' | 'desc';
+}
+
+export interface ViewDataResponse {
+  view: {
+    name: string;
+    icon: string;
+    settings: ViewSettings;
+    columns: ViewColumn[];
+  };
+  items: ViewDataItem[];
+  total_count: number;
+  page: number;
+  limit: number;
+}
+
+export interface ViewDataItem {
+  id: string;
+  name: string;
+  column_values: Record<string, ViewColumnValue>;
+}
+
+export interface ViewColumnValue {
+  text: string | null;
+  value: any;
+  type: string;
+  label?: string;
+  label_style?: { color?: string };
+}
