@@ -16,6 +16,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [memberRole, setMemberRole] = useState<MemberRole | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authInitialized, setAuthInitialized] = useState(false);
 
   // Fetch user profile from user_profiles table
   const fetchProfile = useCallback(async (userId: string) => {
@@ -134,56 +135,60 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return typedOrg;
   }, [user, profile]);
 
+  // Effect 1: Listen for auth state changes — synchronous state updates only.
+  // Avoids calling async Supabase methods inside the callback (deadlock risk).
+  // The INITIAL_SESSION event fires on mount with the existing session if any.
   useEffect(() => {
-    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, newSession) => {
+      (_event, newSession) => {
         setSession(newSession);
         setUser(newSession?.user ?? null);
 
-        // Defer profile and org fetching with setTimeout to prevent deadlock
-        if (newSession?.user) {
-          setTimeout(async () => {
-            try {
-              const userProfile = await fetchProfile(newSession.user.id);
-              setProfile(userProfile);
-              await fetchOrganization(newSession.user.id);
-            } catch (error) {
-              console.error('Error loading user data:', error);
-            } finally {
-              // Only set loading false AFTER org is fetched to prevent flash
-              if (event === "INITIAL_SESSION") {
-                setLoading(false);
-              }
-            }
-          }, 0);
-        } else {
+        if (!newSession?.user) {
           setProfile(null);
           setOrganization(null);
           setMemberRole(null);
-          // Set loading false when there's no user
-          if (event === "INITIAL_SESSION") {
-            setLoading(false);
-          }
         }
+
+        setAuthInitialized(true);
       }
     );
 
-    // THEN check for existing session
-    supabase.auth.getSession().then(async ({ data: { session: existingSession } }) => {
-      setSession(existingSession);
-      setUser(existingSession?.user ?? null);
-
-      if (existingSession?.user) {
-        const userProfile = await fetchProfile(existingSession.user.id);
-        setProfile(userProfile);
-        await fetchOrganization(existingSession.user.id);
-      }
-      setLoading(false);
-    });
-
     return () => subscription.unsubscribe();
-  }, [fetchProfile, fetchOrganization]);
+  }, []);
+
+  // Effect 2: Once auth is initialized, load profile + org data for the user.
+  // setLoading(false) is called in exactly ONE place — the finally block.
+  useEffect(() => {
+    if (!authInitialized) return;
+
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+
+    (async () => {
+      try {
+        const userProfile = await fetchProfile(user.id);
+        if (cancelled) return;
+        setProfile(userProfile);
+        await fetchOrganization(user.id);
+      } catch (error) {
+        console.error("Error loading user data:", error);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authInitialized, user, fetchProfile, fetchOrganization]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
