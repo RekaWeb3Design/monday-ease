@@ -18,6 +18,8 @@ import BoardConfig from "./pages/BoardConfig";
 import Templates from "./pages/Templates";
 import ExecutionHistory from "./pages/ExecutionHistory";
 import OAuthCallback from "./pages/OAuthCallback";
+import BoardViews from "./pages/BoardViews";
+import CustomViewPage from "./pages/CustomViewPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -116,6 +118,30 @@ const App = () => (
                   <RequireOrganization>
                     <AppLayout pageTitle="Activity">
                       <ExecutionHistory />
+                    </AppLayout>
+                  </RequireOrganization>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/board-views"
+              element={
+                <ProtectedRoute>
+                  <RequireOrganization>
+                    <AppLayout pageTitle="Board Views">
+                      <BoardViews />
+                    </AppLayout>
+                  </RequireOrganization>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/board-views/:slug"
+              element={
+                <ProtectedRoute>
+                  <RequireOrganization>
+                    <AppLayout pageTitle="Custom View">
+                      <CustomViewPage />
                     </AppLayout>
                   </RequireOrganization>
                 </ProtectedRoute>

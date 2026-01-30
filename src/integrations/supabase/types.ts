@@ -64,6 +64,65 @@ export type Database = {
           },
         ]
       }
+      custom_board_views: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          display_order: number | null
+          icon: string | null
+          id: string
+          is_active: boolean | null
+          monday_board_id: string
+          monday_board_name: string | null
+          name: string
+          organization_id: string
+          selected_columns: Json
+          settings: Json | null
+          slug: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          monday_board_id: string
+          monday_board_name?: string | null
+          name: string
+          organization_id: string
+          selected_columns?: Json
+          settings?: Json | null
+          slug: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          monday_board_id?: string
+          monday_board_name?: string | null
+          name?: string
+          organization_id?: string
+          selected_columns?: Json
+          settings?: Json | null
+          slug?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "custom_board_views_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       member_board_access: {
         Row: {
           board_config_id: string

@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.get-monday-users]
 verify_jwt = false
+
+[functions.get-board-view-data]
+verify_jwt = false
