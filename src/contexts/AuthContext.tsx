@@ -98,9 +98,80 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setMemberRole(null);
   }, []);
 
-  // Handle pending membership creation for member registration
+  // Handle invited member activation (from email invite link)
+  const handleInvitedMemberActivation = useCallback(async (currentUser: User): Promise<boolean> => {
+    const metadata = currentUser.user_metadata;
+
+    // Check if this user was invited to an organization
+    if (!metadata?.invited_to_organization) {
+      return false;
+    }
+
+    const orgId = metadata.invited_to_organization;
+    console.log("Detected invited member, org:", orgId);
+
+    // Find the pending membership record by email and organization
+    const { data: pendingMember, error: findError } = await supabase
+      .from("organization_members")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("email", currentUser.email!)
+      .eq("status", "pending")
+      .maybeSingle();
+
+    if (findError) {
+      console.error("Error finding pending membership:", findError);
+      return false;
+    }
+
+    if (!pendingMember) {
+      console.log("No pending membership found for invited user");
+      return false;
+    }
+
+    console.log("Activating membership:", pendingMember.id);
+
+    // Activate the membership
+    const { error: updateMemberError } = await supabase
+      .from("organization_members")
+      .update({
+        user_id: currentUser.id,
+        status: "active",
+        joined_at: new Date().toISOString(),
+      })
+      .eq("id", pendingMember.id);
+
+    if (updateMemberError) {
+      console.error("Error activating membership:", updateMemberError);
+      return false;
+    }
+
+    // Update user profile to mark as member
+    const { error: updateProfileError } = await supabase
+      .from("user_profiles")
+      .update({
+        user_type: "member",
+        primary_organization_id: orgId,
+      })
+      .eq("id", currentUser.id);
+
+    if (updateProfileError) {
+      console.error("Error updating user profile:", updateProfileError);
+      // Don't return false here - membership was activated successfully
+    }
+
+    console.log("Invited member activated successfully");
+    return true;
+  }, []);
+
+  // Handle pending membership creation for self-registration
   const handleMemberRegistration = useCallback(async (currentUser: User) => {
     const metadata = currentUser.user_metadata;
+
+    // Skip if this is an invited member (handled by handleInvitedMemberActivation)
+    if (metadata?.invited_to_organization) {
+      return;
+    }
     
     if (metadata?.registration_type === 'member' && metadata?.requested_org_id) {
       // Check if membership already exists
@@ -206,8 +277,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
               const userProfile = await fetchProfile(newSession.user.id);
               setProfile(userProfile);
               
-              // Handle member registration if applicable
-              await handleMemberRegistration(newSession.user);
+              // Handle invited member activation FIRST (highest priority)
+              const wasInvited = await handleInvitedMemberActivation(newSession.user);
+              
+              // Only handle self-registration if not an invited member
+              if (!wasInvited) {
+                await handleMemberRegistration(newSession.user);
+              }
               
               await fetchOrganization(newSession.user.id);
             } catch (error) {
@@ -241,8 +317,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const userProfile = await fetchProfile(existingSession.user.id);
         setProfile(userProfile);
         
-        // Handle member registration if applicable
-        await handleMemberRegistration(existingSession.user);
+        // Handle invited member activation FIRST (highest priority)
+        const wasInvited = await handleInvitedMemberActivation(existingSession.user);
+        
+        // Only handle self-registration if not an invited member
+        if (!wasInvited) {
+          await handleMemberRegistration(existingSession.user);
+        }
         
         await fetchOrganization(existingSession.user.id);
       }
@@ -250,7 +331,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchProfile, fetchOrganization, handleMemberRegistration]);
+  }, [fetchProfile, fetchOrganization, handleInvitedMemberActivation, handleMemberRegistration]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
