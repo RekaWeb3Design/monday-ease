@@ -1,177 +1,156 @@
 
-# Workflow Templates UI and Member Quick Actions
 
-## Overview
-This plan updates the existing workflow system to use the deployed `execute-workflow` Edge Function and adds Quick Actions for team members on their dashboard.
+# Fix Member Activation RLS Issue
 
----
+## Problem Summary
+When an invited member logs in, the `AuthContext.handleInvitedMemberActivation` function tries to query `organization_members` to find and activate their pending membership. However, the RLS policies block this:
 
-## What Will Be Changed
+- **Policy**: "Users view own membership" requires `auth.uid() = user_id`
+- **Problem**: For pending invites, `user_id` is NULL (only `email` is set)
+- **Result**: 403 Forbidden errors when the invited user tries to access their own pending record
 
-### For Organization Owners
-- Update execution hook to call the Edge Function instead of direct DB insert
-- Add "Run By" column to Execution History table
-- Improve execution feedback with success/error states and timing
+## Solution
 
-### For Team Members
-- Add Quick Actions section to Member Dashboard with workflow template cards
-- Add Recent Activity section showing member's last 5 executions
-- Add "Activity" link to member sidebar navigation
+Create a new `activate-invited-member` Edge Function that bypasses RLS using the service role key, then update AuthContext to call this function instead of making direct database queries.
 
 ---
 
 ## Implementation Tasks
 
-### Task 1: Update useWorkflowExecutions Hook
+### Task 1: Create activate-invited-member Edge Function
 
-Modify the `createExecution` function to call the Edge Function:
+**File:** `supabase/functions/activate-invited-member/index.ts`
 
-**File:** `src/hooks/useWorkflowExecutions.ts`
+**Logic:**
+1. Validate the Authorization header (JWT)
+2. Extract user ID and email from the JWT using `getClaims()`
+3. Check if user has `invited_to_organization` in their metadata
+4. Use service_role client to find the pending membership by email and organization
+5. Activate the membership: set `user_id`, `status = 'active'`, `joined_at`
+6. Update `user_profiles`: set `user_type = 'member'`, `primary_organization_id`
+7. Return success/error response
 
-Changes:
-- Replace direct `supabase.from("workflow_executions").insert()` with `supabase.functions.invoke('execute-workflow')`
-- Update return type to include execution result with timing
-- Add user email field to execution fetching by including user_profiles join in the query
-- Update the WorkflowExecution type to include optional user_email field
-
-**Type update:** `src/types/index.ts`
-- Add `user_email?: string` to WorkflowExecution interface
-
----
-
-### Task 2: Update ExecuteTemplateDialog
-
-Enhance the dialog with better execution feedback:
-
-**File:** `src/components/templates/ExecuteTemplateDialog.tsx`
-
-Changes:
-- Add success/error result state after execution completes
-- Show execution time in success state
-- Display error message in error state  
-- Add "Run Another" button to reset the form
-- Improve visual feedback during execution
+**Pattern:** Follow the same structure as the existing `invite-member` function:
+- CORS headers
+- JWT validation with `getClaims()`
+- Service role client for privileged operations
+- Comprehensive error handling and logging
 
 ---
 
-### Task 3: Update Execution History Page
+### Task 2: Update supabase/config.toml
 
-Add "Run By" column to show who triggered each execution:
+Add the new function configuration:
 
-**File:** `src/pages/ExecutionHistory.tsx`
-
-Changes:
-- Add "Run By" column between "Template" and "Status"
-- Display user email from the joined data
-- Add optional status filter dropdown (All, Pending, Running, Success, Failed)
+```toml
+[functions.activate-invited-member]
+verify_jwt = false
+```
 
 ---
 
-### Task 4: Create QuickActions Component for Members
+### Task 3: Update AuthContext.tsx
 
-New component showing compact workflow template cards:
+Modify `handleInvitedMemberActivation` to call the Edge Function instead of direct Supabase queries:
 
-**File:** `src/components/member/QuickActions.tsx`
+**Before (current - fails with 403):**
+```typescript
+const { data: pendingMember } = await supabase
+  .from("organization_members")
+  .select("id")
+  .eq("organization_id", orgId)
+  .eq("email", currentUser.email!)
+  .eq("status", "pending")
+  .maybeSingle();
+```
 
-Features:
-- Grid of smaller template cards (compared to owner view)
-- Uses existing `useWorkflowTemplates` hook
-- Clicking a card opens `ExecuteTemplateDialog`
-- Compact layout suitable for dashboard section
+**After (new - calls Edge Function):**
+```typescript
+const { data, error } = await supabase.functions.invoke('activate-invited-member');
 
----
+if (error || !data?.success) {
+  console.error("Activation failed:", error || data?.error);
+  return false;
+}
 
-### Task 5: Create RecentActivity Component for Members
-
-New component showing member's recent executions:
-
-**File:** `src/components/member/RecentActivity.tsx`
-
-Features:
-- List of last 5 executions for the current user
-- Shows template name, status badge, and relative time
-- Uses filtered data from `useWorkflowExecutions`
-- Compact list format
-
----
-
-### Task 6: Update Member Dashboard
-
-Integrate the new components:
-
-**File:** `src/pages/MemberDashboard.tsx`
-
-Changes:
-- Import QuickActions and RecentActivity components
-- Add Quick Actions section above the tasks grid
-- Add Recent Activity section below Quick Actions
-- Maintain existing task display functionality
+console.log("Invited member activated via Edge Function");
+return true;
+```
 
 ---
 
-### Task 7: Update Sidebar Navigation
-
-Add Activity link for members:
-
-**File:** `src/components/layout/AppSidebar.tsx`
-
-Changes:
-- Add "Activity" to `memberNavItems` array
-- Use Activity icon
-- Link to `/activity` route
-
----
-
-## Files Summary
+## File Changes Summary
 
 | Action | File | Description |
 |--------|------|-------------|
-| Update | `src/types/index.ts` | Add user_email to WorkflowExecution |
-| Update | `src/hooks/useWorkflowExecutions.ts` | Call Edge Function, join user email |
-| Update | `src/components/templates/ExecuteTemplateDialog.tsx` | Better execution feedback |
-| Update | `src/pages/ExecutionHistory.tsx` | Add "Run By" column + status filter |
-| Create | `src/components/member/QuickActions.tsx` | Template cards for members |
-| Create | `src/components/member/RecentActivity.tsx` | Recent executions list |
-| Update | `src/pages/MemberDashboard.tsx` | Integrate new components |
-| Update | `src/components/layout/AppSidebar.tsx` | Add Activity to member nav |
+| Create | `supabase/functions/activate-invited-member/index.ts` | Edge Function for member activation |
+| Update | `supabase/config.toml` | Add function config with `verify_jwt = false` |
+| Update | `src/contexts/AuthContext.tsx` | Replace direct queries with Edge Function call |
+
+---
+
+## Edge Function Details
+
+### Input
+No request body needed - the function extracts everything from the JWT:
+- User ID: `claims.sub`
+- User Email: `claims.email`
+- Invited Organization: From user metadata (fetched via `auth.admin.getUserById`)
+
+### Output
+```json
+{
+  "success": true,
+  "message": "Membership activated successfully",
+  "organization_id": "uuid",
+  "organization_name": "Org Name"
+}
+```
+
+Or on error:
+```json
+{
+  "success": false,
+  "error": "No pending membership found"
+}
+```
+
+### Security
+- JWT is validated server-side using `getClaims()`
+- Service role client bypasses RLS only for the specific activation operation
+- Function only activates memberships that match the authenticated user's email
+
+---
+
+## Flow After Fix
+
+```text
+1. Owner invites member@example.com
+   -> invite-member creates pending record (user_id = NULL)
+
+2. Member receives email, clicks link, sets password
+
+3. Member logs in
+   -> AuthContext detects invited_to_organization metadata
+   -> Calls activate-invited-member Edge Function
+
+4. Edge Function (with service_role):
+   -> Finds pending membership by email
+   -> Sets user_id, status='active', joined_at
+   -> Updates user_profiles
+
+5. AuthContext:
+   -> fetchOrganization() now succeeds (RLS allows user_id = auth.uid())
+   -> Member is redirected to /member dashboard
+```
 
 ---
 
 ## Execution Order
 
-1. Update `src/types/index.ts` - Add user_email field
-2. Update `src/hooks/useWorkflowExecutions.ts` - Edge Function + user email
-3. Update `src/components/templates/ExecuteTemplateDialog.tsx` - Better feedback
-4. Update `src/pages/ExecutionHistory.tsx` - "Run By" column + filter
-5. Create `src/components/member/QuickActions.tsx` - Member template cards
-6. Create `src/components/member/RecentActivity.tsx` - Recent activity list
-7. Update `src/pages/MemberDashboard.tsx` - Integrate new sections
-8. Update `src/components/layout/AppSidebar.tsx` - Add Activity link for members
+1. Create the Edge Function file
+2. Update `supabase/config.toml`
+3. Deploy Edge Function (automatic)
+4. Update `AuthContext.tsx` to call the function
+5. Test the full invited member flow
 
----
-
-## Technical Notes
-
-### Edge Function Call Pattern
-```typescript
-const { data, error } = await supabase.functions.invoke('execute-workflow', {
-  body: {
-    template_id: templateId,
-    input_params: inputParams
-  }
-});
-
-// Response: { success, execution_id, status, result, execution_time_ms }
-```
-
-### User Email Join Query
-```typescript
-.select(`
-  *,
-  workflow_templates (id, name, description, category, icon),
-  user_profiles!workflow_executions_user_id_fkey (email)
-`)
-```
-
-### Member Quick Actions Layout
-The Quick Actions section will display as a horizontal row of compact cards above the existing tasks grid, with Recent Activity shown as a compact list below it.
