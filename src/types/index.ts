@@ -98,10 +98,18 @@ export interface BoardConfig {
   board_name: string;
   filter_column_id: string | null;
   filter_column_name: string | null;
+  filter_column_type: string | null;
   visible_columns: string[];
   is_active: boolean;
   created_at: string | null;
   updated_at: string | null;
+}
+
+// Monday.com user from API
+export interface MondayUser {
+  id: string;
+  name: string;
+  email: string;
 }
 
 // Member board access from database (member_board_access table)
