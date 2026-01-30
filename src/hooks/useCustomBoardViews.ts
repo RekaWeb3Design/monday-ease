@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import type { CustomBoardView, ViewColumn, ViewSettings } from "@/types";
+import type { Json } from "@/integrations/supabase/types";
 
 interface CreateViewData {
   name: string;
@@ -123,8 +124,8 @@ export function useCustomBoardViews(): UseCustomBoardViewsReturn {
           icon: data.icon,
           monday_board_id: data.monday_board_id,
           monday_board_name: data.monday_board_name,
-          selected_columns: JSON.stringify(data.selected_columns),
-          settings: JSON.stringify(data.settings),
+          selected_columns: data.selected_columns as unknown as Json,
+          settings: data.settings as unknown as Json,
           display_order: views.length,
         }])
         .select()
