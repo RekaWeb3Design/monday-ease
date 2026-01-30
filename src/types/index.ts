@@ -133,3 +133,23 @@ export interface MondayColumn {
 export interface BoardConfigWithAccess extends BoardConfig {
   memberAccess: MemberBoardAccess[];
 }
+
+// Monday.com task item from API (for member dashboard)
+export interface MondayTask {
+  id: string;
+  name: string;
+  board_id: string;
+  board_name: string;
+  column_values: MondayColumnValue[];
+  created_at: string;
+  updated_at: string;
+}
+
+// Column value from Monday.com (for member dashboard)
+export interface MondayColumnValue {
+  id: string;
+  title: string;
+  type: string;
+  text: string | null;
+  value: any;
+}

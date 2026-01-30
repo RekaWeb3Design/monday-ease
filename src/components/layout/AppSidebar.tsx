@@ -8,6 +8,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   LayoutGrid,
+  ClipboardList,
 } from "lucide-react";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 import { NavLink } from "@/components/NavLink";
@@ -28,18 +29,21 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import type { NavItem } from "@/types";
 
-const navItems: NavItem[] = [
+// Owner-only nav items (full access)
+const ownerNavItems: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Organization", url: "/organization", icon: Building2 },
   { title: "Integrations", url: "/integrations", icon: Plug },
+  { title: "Boards", url: "/boards", icon: LayoutGrid },
   { title: "Templates", url: "/templates", icon: Zap },
   { title: "Activity", url: "/activity", icon: Activity },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
-// Owner-only nav items
-const ownerNavItems: NavItem[] = [
-  { title: "Boards", url: "/boards", icon: LayoutGrid },
+// Member nav items (limited access)
+const memberNavItems: NavItem[] = [
+  { title: "My Tasks", url: "/member", icon: ClipboardList },
+  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
@@ -47,6 +51,9 @@ export function AppSidebar() {
   const { profile, memberRole } = useAuth();
   const isCollapsed = state === "collapsed";
   const isOwner = memberRole === "owner";
+  
+  // Select nav items based on role
+  const navItems = isOwner ? ownerNavItems : memberNavItems;
 
   const displayName = profile?.full_name || profile?.email?.split("@")[0] || "User";
   const avatarInitial = displayName.charAt(0).toUpperCase();
@@ -78,7 +85,7 @@ export function AppSidebar() {
                   <SidebarMenuButton asChild tooltip={item.title}>
                     <NavLink
                       to={item.url}
-                      end={item.url === "/"}
+                      end={item.url === "/" || item.url === "/member"}
                       className="flex items-center gap-3 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                       activeClassName="bg-sidebar-accent text-primary font-medium"
                     >
@@ -88,22 +95,6 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
-              {/* Owner-only nav items */}
-              {isOwner &&
-                ownerNavItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild tooltip={item.title}>
-                      <NavLink
-                        to={item.url}
-                        className="flex items-center gap-3 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                        activeClassName="bg-sidebar-accent text-primary font-medium"
-                      >
-                        <item.icon className="h-5 w-5 shrink-0" />
-                        <span>{item.title}</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
