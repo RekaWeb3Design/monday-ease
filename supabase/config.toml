@@ -2,3 +2,6 @@ project_id = "yqjugovqhvxoxvrceqqp"
 
 [functions.get-member-tasks]
 verify_jwt = false
+
+[functions.get-monday-users]
+verify_jwt = false

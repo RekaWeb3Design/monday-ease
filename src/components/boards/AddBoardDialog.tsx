@@ -115,6 +115,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
       board_name: selectedBoard.name,
       filter_column_id: filterColumnId === 'none' ? null : filterColumnId || null,
       filter_column_name: filterColumn?.title || null,
+      filter_column_type: filterColumn?.type || null,
       visible_columns: visibleColumns,
       memberMappings: Object.entries(memberMappings)
         .filter(([_, value]) => value.trim() !== "")

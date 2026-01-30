@@ -20,6 +20,7 @@ export type Database = {
           created_at: string | null
           filter_column_id: string | null
           filter_column_name: string | null
+          filter_column_type: string | null
           id: string
           is_active: boolean | null
           monday_board_id: string
@@ -32,6 +33,7 @@ export type Database = {
           created_at?: string | null
           filter_column_id?: string | null
           filter_column_name?: string | null
+          filter_column_type?: string | null
           id?: string
           is_active?: boolean | null
           monday_board_id: string
@@ -44,6 +46,7 @@ export type Database = {
           created_at?: string | null
           filter_column_id?: string | null
           filter_column_name?: string | null
+          filter_column_type?: string | null
           id?: string
           is_active?: boolean | null
           monday_board_id?: string

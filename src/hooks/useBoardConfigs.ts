@@ -9,6 +9,7 @@ interface CreateConfigInput {
   board_name: string;
   filter_column_id: string | null;
   filter_column_name: string | null;
+  filter_column_type: string | null;
   visible_columns: string[];
   memberMappings: { member_id: string; filter_value: string }[];
 }
@@ -69,6 +70,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
         board_name: config.board_name,
         filter_column_id: config.filter_column_id,
         filter_column_name: config.filter_column_name,
+        filter_column_type: config.filter_column_type,
         visible_columns: (config.visible_columns as string[]) || [],
         is_active: config.is_active ?? true,
         created_at: config.created_at,
@@ -114,6 +116,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
             board_name: input.board_name,
             filter_column_id: input.filter_column_id,
             filter_column_name: input.filter_column_name,
+            filter_column_type: input.filter_column_type,
             visible_columns: input.visible_columns,
             is_active: true,
           })

@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
-import { Loader2, AlertCircle } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Loader2, AlertCircle, Check, ChevronsUpDown, User } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
+import { useMondayUsers } from "@/hooks/useMondayUsers";
 
 import {
   Dialog,
@@ -16,8 +17,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
-import type { OrganizationMember, BoardConfig, MemberBoardAccess } from "@/types";
+import type { OrganizationMember } from "@/types";
 
 interface EditBoardAccessDialogProps {
   isOpen: boolean;
@@ -31,6 +46,7 @@ interface BoardAccessState {
   boardConfigId: string;
   boardName: string;
   filterColumnName: string | null;
+  filterColumnType: string | null;
   filterValue: string;
   existingAccessId: string | null;
 }
@@ -46,8 +62,26 @@ export function EditBoardAccessDialog({
   const [isSaving, setIsSaving] = useState(false);
   const [boardAccessList, setBoardAccessList] = useState<BoardAccessState[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [openPopovers, setOpenPopovers] = useState<Record<string, boolean>>({});
+
+  // Monday users for person column dropdowns
+  const { users: mondayUsers, isLoading: usersLoading, fetchUsers } = useMondayUsers();
 
   const displayName = member?.display_name || member?.email?.split("@")[0] || "Member";
+
+  // Check if any board has a person filter column
+  const hasPersonColumn = useMemo(() => {
+    return boardAccessList.some((access) => 
+      access.filterColumnType === "people" || access.filterColumnType === "person"
+    );
+  }, [boardAccessList]);
+
+  // Fetch Monday users if needed
+  useEffect(() => {
+    if (isOpen && hasPersonColumn && mondayUsers.length === 0 && !usersLoading) {
+      fetchUsers();
+    }
+  }, [isOpen, hasPersonColumn, mondayUsers.length, usersLoading, fetchUsers]);
 
   // Fetch board configs and member's current access
   useEffect(() => {
@@ -62,10 +96,10 @@ export function EditBoardAccessDialog({
       setError(null);
 
       try {
-        // Fetch all active board configs for the organization
+        // Fetch all active board configs for the organization (including filter_column_type)
         const { data: boardConfigs, error: configError } = await supabase
           .from("board_configs")
-          .select("id, board_name, filter_column_id, filter_column_name")
+          .select("id, board_name, filter_column_id, filter_column_name, filter_column_type")
           .eq("organization_id", organizationId)
           .eq("is_active", true);
 
@@ -95,6 +129,7 @@ export function EditBoardAccessDialog({
             boardConfigId: config.id,
             boardName: config.board_name,
             filterColumnName: config.filter_column_name,
+            filterColumnType: config.filter_column_type,
             filterValue: existing?.filterValue || "",
             existingAccessId: existing?.id || null,
           };
@@ -121,6 +156,11 @@ export function EditBoardAccessDialog({
           : item
       )
     );
+  };
+
+  // Toggle popover open state
+  const togglePopover = (boardConfigId: string, open: boolean) => {
+    setOpenPopovers((prev) => ({ ...prev, [boardConfigId]: open }));
   };
 
   // Save changes
@@ -182,6 +222,101 @@ export function EditBoardAccessDialog({
     }
   };
 
+  // Check if column type is person/people
+  const isPersonColumn = (type: string | null) => {
+    return type === "people" || type === "person";
+  };
+
+  // Render filter value input based on column type
+  const renderFilterInput = (access: BoardAccessState) => {
+    if (isPersonColumn(access.filterColumnType)) {
+      // Render Combobox for person columns
+      const selectedUser = mondayUsers.find((u) => u.name === access.filterValue);
+      const isOpen = openPopovers[access.boardConfigId] || false;
+
+      return (
+        <Popover open={isOpen} onOpenChange={(open) => togglePopover(access.boardConfigId, open)}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              aria-expanded={isOpen}
+              className="w-full justify-between font-normal"
+              disabled={usersLoading}
+            >
+              {usersLoading ? (
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading users...
+                </span>
+              ) : access.filterValue ? (
+                <span className="flex items-center gap-2">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  {selectedUser ? `${selectedUser.name} (${selectedUser.email})` : access.filterValue}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">Select a person...</span>
+              )}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[400px] p-0" align="start">
+            <Command>
+              <CommandInput placeholder="Search users..." />
+              <CommandList>
+                <CommandEmpty>No users found.</CommandEmpty>
+                <CommandGroup>
+                  {/* Option to clear */}
+                  <CommandItem
+                    value="__clear__"
+                    onSelect={() => {
+                      handleFilterValueChange(access.boardConfigId, "");
+                      togglePopover(access.boardConfigId, false);
+                    }}
+                  >
+                    <span className="text-muted-foreground">None (remove access)</span>
+                  </CommandItem>
+                  {/* User options */}
+                  {mondayUsers.map((user) => (
+                    <CommandItem
+                      key={user.id}
+                      value={`${user.name} ${user.email}`}
+                      onSelect={() => {
+                        handleFilterValueChange(access.boardConfigId, user.name);
+                        togglePopover(access.boardConfigId, false);
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          access.filterValue === user.name ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      <div className="flex flex-col">
+                        <span>{user.name}</span>
+                        <span className="text-xs text-muted-foreground">{user.email}</span>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      );
+    }
+
+    // Default: text input for other column types
+    return (
+      <Input
+        id={`filter-${access.boardConfigId}`}
+        placeholder={`e.g., ${displayName}`}
+        value={access.filterValue}
+        onChange={(e) => handleFilterValueChange(access.boardConfigId, e.target.value)}
+      />
+    );
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-lg">
@@ -238,16 +373,11 @@ export function EditBoardAccessDialog({
                           </span>
                         )}
                       </Label>
-                      <Input
-                        id={`filter-${access.boardConfigId}`}
-                        placeholder={`e.g., ${displayName}`}
-                        value={access.filterValue}
-                        onChange={(e) =>
-                          handleFilterValueChange(access.boardConfigId, e.target.value)
-                        }
-                      />
+                      {renderFilterInput(access)}
                       <p className="text-xs text-muted-foreground">
-                        Leave empty to remove access to this board
+                        {isPersonColumn(access.filterColumnType)
+                          ? "Select a person or leave empty to remove access"
+                          : "Leave empty to remove access to this board"}
                       </p>
                     </div>
                   </CardContent>
