@@ -1,38 +1,32 @@
 
 
-# Add Drag-and-Drop Column Reordering to CreateViewDialog
+# Add Draggable Column Headers to ViewDataTable
 
 ## Overview
 
-Add drag-and-drop functionality to Step 3 (Column Configuration) of the CreateViewDialog, allowing users to reorder their selected columns visually. This uses the @dnd-kit library for smooth, accessible drag-and-drop interactions.
+Add horizontal drag-and-drop functionality to column headers in the ViewDataTable component, allowing users to reorder columns live in the table view with automatic debounced saving to the database.
 
 ---
 
-## Installation Required
+## Files to Modify
 
-```bash
-npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
-```
-
----
-
-## File to Modify
-
-**`src/components/board-views/CreateViewDialog.tsx`**
+| File | Changes |
+|------|---------|
+| `src/components/board-views/ViewDataTable.tsx` | Add DnD context, SortableHeader component, reorder handler |
+| `src/pages/CustomViewPage.tsx` | Add local columns state, debounced save, pass callback to table |
 
 ---
 
 ## Implementation Details
 
-### 1. Add New Imports
+### 1. Update ViewDataTable.tsx
 
-Add the following imports at the top of the file:
+#### Add Imports
 
 ```typescript
 import {
   DndContext,
   closestCenter,
-  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
@@ -41,34 +35,43 @@ import {
 import {
   arrayMove,
   SortableContext,
-  sortableKeyboardCoordinates,
+  horizontalListSortingStrategy,
   useSortable,
-  verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { GripVertical } from 'lucide-react';
 ```
 
-Note: `GripVertical` is already imported from lucide-react.
-
----
-
-### 2. Create SortableColumnItem Component
-
-Add a new internal component for draggable column items:
+#### Update Props Interface
 
 ```typescript
-function SortableColumnItem({
+interface ViewDataTableProps {
+  columns: ViewColumn[];
+  items: ViewDataItem[];
+  settings: ViewSettings;
+  isLoading: boolean;
+  sortColumn: string | null;
+  sortOrder: 'asc' | 'desc';
+  onSort: (columnId: string) => void;
+  onColumnsReorder?: (newColumns: ViewColumn[]) => void; // NEW
+}
+```
+
+#### Create SortableHeader Component
+
+```typescript
+function SortableHeader({
   column,
-  isSelected,
-  selectedCol,
-  onToggle,
-  onWidthChange,
+  sortColumn,
+  sortOrder,
+  onSort,
+  SortIcon,
 }: {
-  column: MondayColumn;
-  isSelected: boolean;
-  selectedCol?: ViewColumn;
-  onToggle: (checked: boolean) => void;
-  onWidthChange: (width: number) => void;
+  column: ViewColumn;
+  sortColumn: string | null;
+  sortOrder: 'asc' | 'desc';
+  onSort: () => void;
+  SortIcon: React.ComponentType<{ columnId: string }>;
 }) {
   const {
     attributes,
@@ -77,233 +80,222 @@ function SortableColumnItem({
     transform,
     transition,
     isDragging,
-  } = useSortable({ 
-    id: column.id, 
-    disabled: !isSelected  // Only draggable when selected
-  });
+  } = useSortable({ id: column.id });
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+    width: column.width || 150,
+    minWidth: column.width || 100,
   };
 
   return (
-    <div
+    <TableHead
       ref={setNodeRef}
       style={style}
       className={cn(
-        "flex items-center gap-3 p-2 rounded-md transition-colors",
-        isSelected && "bg-primary/5",
-        isDragging && "opacity-50 border border-primary shadow-sm"
+        "group",
+        isDragging && "opacity-50 bg-muted"
       )}
     >
-      {/* Drag handle - only visible when selected */}
-      {isSelected && (
+      <div className="flex items-center">
         <div
           {...attributes}
           {...listeners}
-          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+          className="cursor-grab active:cursor-grabbing p-1 -ml-1 opacity-0 group-hover:opacity-100 transition-opacity"
         >
-          <GripVertical className="h-4 w-4" />
+          <GripVertical className="h-3 w-3 text-muted-foreground" />
         </div>
-      )}
-      
-      <Checkbox
-        id={column.id}
-        checked={isSelected}
-        onCheckedChange={onToggle}
-      />
-      
-      <div className="flex-1">
-        <label
-          htmlFor={column.id}
-          className="text-sm font-medium cursor-pointer"
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-1 h-8 hover:bg-transparent"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSort();
+          }}
         >
           {column.title}
-        </label>
-        <p className="text-xs text-muted-foreground">
-          Type: {column.type}
-        </p>
+          <SortIcon columnId={column.id} />
+        </Button>
       </div>
-      
-      {isSelected && (
-        <div className="flex items-center gap-2">
-          <Label className="text-xs">Width:</Label>
-          <Input
-            type="number"
-            value={selectedCol?.width || 150}
-            onChange={(e) => onWidthChange(parseInt(e.target.value) || 150)}
-            className="w-16 h-7 text-xs"
-            min={50}
-            max={500}
-          />
-        </div>
-      )}
-    </div>
+    </TableHead>
   );
 }
 ```
 
----
+#### Add Sensors and DragEnd Handler
 
-### 3. Add Sensors and Drag Handler
-
-Inside the `CreateViewDialog` component, add:
+Inside the ViewDataTable component:
 
 ```typescript
 // Drag-and-drop sensors
 const sensors = useSensors(
   useSensor(PointerSensor, {
     activationConstraint: {
-      distance: 8,  // Prevent accidental drags
+      distance: 8,
     },
-  }),
-  useSensor(KeyboardSensor, {
-    coordinateGetter: sortableKeyboardCoordinates,
   })
 );
 
-// Handle drag end event
+// Handle column reorder
 const handleDragEnd = (event: DragEndEvent) => {
   const { active, over } = event;
   
-  if (over && active.id !== over.id) {
-    setSelectedColumns((items) => {
-      const oldIndex = items.findIndex((i) => i.id === active.id);
-      const newIndex = items.findIndex((i) => i.id === over.id);
-      return arrayMove(items, oldIndex, newIndex);
-    });
+  if (over && active.id !== over.id && onColumnsReorder) {
+    const oldIndex = columns.findIndex((c) => c.id === active.id);
+    const newIndex = columns.findIndex((c) => c.id === over.id);
+    const newColumns = arrayMove(columns, oldIndex, newIndex);
+    onColumnsReorder(newColumns);
   }
 };
 ```
 
----
-
-### 4. Create Sorted Column List
-
-Compute the display order for columns (selected first, then unselected):
-
-```typescript
-// Get columns in display order: selected columns first (in their order), then unselected
-const sortedBoardColumns = [...boardColumns].sort((a, b) => {
-  const aIndex = selectedColumns.findIndex(c => c.id === a.id);
-  const bIndex = selectedColumns.findIndex(c => c.id === b.id);
-  
-  // Both selected: maintain selectedColumns order
-  if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-  // Only a selected: a comes first
-  if (aIndex !== -1) return -1;
-  // Only b selected: b comes first
-  if (bIndex !== -1) return 1;
-  // Neither selected: maintain original order
-  return 0;
-});
-```
-
----
-
-### 5. Update Step 3 Render (case 3)
-
-Replace the current Step 3 column list with the DnD-wrapped version:
+#### Wrap TableHeader with DnD Context
 
 ```tsx
-case 3:
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <Label>Select Columns to Display *</Label>
-        <p className="text-sm text-muted-foreground">
-          Choose columns and drag to reorder selected ones
-        </p>
-      </div>
-      <ScrollArea className="h-[300px] rounded-md border p-3">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={selectedColumns.map(c => c.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="space-y-2">
-              {sortedBoardColumns.map((column) => {
-                const isSelected = selectedColumns.some(c => c.id === column.id);
-                const selectedCol = selectedColumns.find(c => c.id === column.id);
-
-                return (
-                  <SortableColumnItem
-                    key={column.id}
-                    column={column}
-                    isSelected={isSelected}
-                    selectedCol={selectedCol}
-                    onToggle={(checked) => handleColumnToggle(column, checked)}
-                    onWidthChange={(width) => handleColumnWidthChange(column.id, width)}
-                  />
-                );
-              })}
-            </div>
-          </SortableContext>
-        </DndContext>
-      </ScrollArea>
-      <p className="text-sm text-muted-foreground">
-        {selectedColumns.length} column{selectedColumns.length !== 1 ? "s" : ""} selected
-        {selectedColumns.length > 1 && " • Drag to reorder"}
-      </p>
-    </div>
-  );
+<TableHeader>
+  <DndContext
+    sensors={sensors}
+    collisionDetection={closestCenter}
+    onDragEnd={handleDragEnd}
+  >
+    <SortableContext
+      items={columns.map(c => c.id)}
+      strategy={horizontalListSortingStrategy}
+    >
+      <TableRow>
+        {settings.show_item_name && (
+          <TableHead className="w-[200px]">
+            <Button variant="ghost" size="sm" ... >
+              Item Name
+              <SortIcon columnId="name" />
+            </Button>
+          </TableHead>
+        )}
+        {columns.map((col) => (
+          <SortableHeader
+            key={col.id}
+            column={col}
+            sortColumn={sortColumn}
+            sortOrder={sortOrder}
+            onSort={() => onSort(col.id)}
+            SortIcon={SortIcon}
+          />
+        ))}
+      </TableRow>
+    </SortableContext>
+  </DndContext>
+</TableHeader>
 ```
 
 ---
 
-## Visual Behavior
+### 2. Update CustomViewPage.tsx
 
-| State | Visual Feedback |
-|-------|-----------------|
-| Selected column | Light primary background, drag handle visible |
-| Dragging | 50% opacity, primary border, slight shadow |
-| Unselected | Normal styling, no drag handle |
-| Drop target | Smooth transition animation |
+#### Add Local Columns State
 
----
+```typescript
+// Local columns state for responsive reordering
+const [localColumns, setLocalColumns] = useState<ViewColumn[]>([]);
 
-## UI Layout (Step 3)
-
-```text
-+----------------------------------------+
-| Select Columns to Display *            |
-| Choose columns and drag to reorder     |
-+----------------------------------------+
-| ⠿ ☑ Status          Type: status [150]|  ← Selected (draggable)
-| ⠿ ☑ Priority        Type: dropdown[120]|  ← Selected (draggable)
-| ⠿ ☑ Due Date        Type: date   [150]|  ← Selected (draggable)
-|   ☐ Owner           Type: people       |  ← Unselected (not draggable)
-|   ☐ Created         Type: date         |  ← Unselected (not draggable)
-+----------------------------------------+
-| 3 columns selected • Drag to reorder   |
-+----------------------------------------+
+// Sync local columns with view data
+useEffect(() => {
+  const cols = viewData?.columns || view?.selected_columns || [];
+  setLocalColumns(cols);
+}, [viewData?.columns, view?.selected_columns]);
 ```
 
+#### Add Debounced Save Function
+
+```typescript
+import debounce from a useMemo pattern:
+
+// Debounced save for column reorder
+const debouncedSaveColumns = useMemo(
+  () => {
+    let timeoutId: NodeJS.Timeout;
+    return (newColumns: ViewColumn[]) => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(async () => {
+        if (view) {
+          const success = await updateView(view.id, { selected_columns: newColumns });
+          if (success) {
+            toast({
+              title: "Column order saved",
+              description: "Your column arrangement has been saved.",
+            });
+          }
+        }
+      }, 1000);
+    };
+  },
+  [view, updateView, toast]
+);
+```
+
+#### Add Reorder Handler
+
+```typescript
+const handleColumnsReorder = (newColumns: ViewColumn[]) => {
+  // Update local state immediately for responsive UI
+  setLocalColumns(newColumns);
+  // Debounce the database save
+  debouncedSaveColumns(newColumns);
+};
+```
+
+#### Update ViewDataTable Usage
+
+```tsx
+<ViewDataTable
+  columns={localColumns}  // Use local state instead of viewData.columns
+  items={filteredItems}
+  settings={settings}
+  isLoading={isLoading}
+  sortColumn={sortColumn}
+  sortOrder={sortOrder}
+  onSort={handleSort}
+  onColumnsReorder={isOwner ? handleColumnsReorder : undefined}  // Only owners can reorder
+/>
+```
+
+#### Update Filter Options to Use localColumns
+
+Change references from `columns` to `localColumns` for the filter options computation to stay in sync.
+
 ---
 
-## Changes Summary
+## Behavior Summary
 
-| Location | Change |
-|----------|--------|
-| Imports | Add @dnd-kit imports |
-| New component | `SortableColumnItem` for individual draggable items |
-| New variables | `sensors`, `sortedBoardColumns` |
-| New function | `handleDragEnd` for reorder logic |
-| Step 3 render | Wrap with `DndContext` and `SortableContext` |
-| Helper text | Updated to mention drag-to-reorder |
+| Action | Result |
+|--------|--------|
+| Hover column header | Drag handle icon appears (opacity transition) |
+| Click column header | Triggers sort (stopPropagation prevents drag) |
+| Drag column header | Horizontal reorder with opacity feedback |
+| Release column | New order applied locally immediately |
+| 1 second after last drag | Auto-save to database with toast confirmation |
+| Non-owner users | No drag handles shown (reorder disabled) |
 
 ---
 
-## Accessibility
+## Visual Feedback
 
-The implementation includes:
-- Keyboard support via `KeyboardSensor`
-- ARIA attributes via `useSortable`
-- Focus management for screen readers
-- Activation constraint to prevent accidental drags
+| State | Styling |
+|-------|---------|
+| Normal | Drag handle hidden (opacity-0) |
+| Hover | Drag handle visible (opacity-100) |
+| Dragging | Column 50% opacity, muted background |
+| Drop complete | Smooth transition to new position |
+
+---
+
+## Technical Notes
+
+- Uses `horizontalListSortingStrategy` for horizontal reordering
+- 8px activation constraint prevents accidental drags
+- Debounce pattern avoids excessive database writes during rapid reordering
+- Local state ensures immediate UI feedback while save is pending
+- Only owners can reorder (callback is undefined for members)
+- Toast notification confirms save after debounce completes
 
