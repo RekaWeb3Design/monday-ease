@@ -173,7 +173,7 @@ export default function Auth() {
 
       // If member registration and user was created (email confirmation might be disabled)
       if (registrationType === "member" && data.user) {
-        // Create pending membership record
+        // Create active membership record
         const { error: memberError } = await supabase
           .from("organization_members")
           .insert({
@@ -182,7 +182,8 @@ export default function Auth() {
             email: signUpEmail,
             display_name: signUpFullName,
             role: "member",
-            status: "pending",
+            status: "active",
+            joined_at: new Date().toISOString(),
           });
 
         if (memberError) {
@@ -373,7 +374,7 @@ export default function Auth() {
                     <CheckCircle className="h-4 w-4 text-primary" />
                     <AlertDescription className="text-foreground">
                       {registrationType === "member" 
-                        ? "Account created! Check your email to confirm, then wait for organization approval."
+                        ? "Account created! Check your email to confirm, then you can sign in."
                         : "Check your email to confirm your account before signing in."
                       }
                     </AlertDescription>
