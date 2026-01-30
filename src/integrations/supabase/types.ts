@@ -14,6 +14,95 @@ export type Database = {
   }
   public: {
     Tables: {
+      board_configs: {
+        Row: {
+          board_name: string
+          created_at: string | null
+          filter_column_id: string | null
+          filter_column_name: string | null
+          id: string
+          is_active: boolean | null
+          monday_board_id: string
+          organization_id: string
+          updated_at: string | null
+          visible_columns: Json | null
+        }
+        Insert: {
+          board_name: string
+          created_at?: string | null
+          filter_column_id?: string | null
+          filter_column_name?: string | null
+          id?: string
+          is_active?: boolean | null
+          monday_board_id: string
+          organization_id: string
+          updated_at?: string | null
+          visible_columns?: Json | null
+        }
+        Update: {
+          board_name?: string
+          created_at?: string | null
+          filter_column_id?: string | null
+          filter_column_name?: string | null
+          id?: string
+          is_active?: boolean | null
+          monday_board_id?: string
+          organization_id?: string
+          updated_at?: string | null
+          visible_columns?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "board_configs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      member_board_access: {
+        Row: {
+          board_config_id: string
+          created_at: string | null
+          filter_value: string
+          id: string
+          member_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          board_config_id: string
+          created_at?: string | null
+          filter_value: string
+          id?: string
+          member_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          board_config_id?: string
+          created_at?: string | null
+          filter_value?: string
+          id?: string
+          member_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_board_access_board_config_id_fkey"
+            columns: ["board_config_id"]
+            isOneToOne: false
+            referencedRelation: "board_configs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "member_board_access_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "organization_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organization_members: {
         Row: {
           display_name: string | null
