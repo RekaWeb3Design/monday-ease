@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Pencil, Plus, Trash2, Loader2, AlertCircle, Users } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Pencil, Plus, Trash2, Loader2, AlertCircle, Users, Eye, Settings } from "lucide-react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -57,6 +57,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+import { MemberViewSheet } from "@/components/organization/MemberViewSheet";
+import { EditBoardAccessDialog } from "@/components/organization/EditBoardAccessDialog";
 
 import type { OrganizationMember, MemberRole } from "@/types";
 
@@ -118,6 +127,13 @@ export default function Organization() {
   const [selectedMember, setSelectedMember] = useState<OrganizationMember | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Member view/edit states
+  const [selectedMemberForView, setSelectedMemberForView] = useState<OrganizationMember | null>(null);
+  const [selectedMemberForBoardEdit, setSelectedMemberForBoardEdit] = useState<OrganizationMember | null>(null);
+  const [isViewSheetOpen, setIsViewSheetOpen] = useState(false);
+  const [isEditBoardDialogOpen, setIsEditBoardDialogOpen] = useState(false);
+  const [memberBoardCounts, setMemberBoardCounts] = useState<Record<string, number>>({});
+
   // Forms
   const inviteForm = useForm<InviteFormData>({
     resolver: zodResolver(inviteSchema),
@@ -133,6 +149,34 @@ export default function Organization() {
     resolver: zodResolver(editOrgSchema),
     defaultValues: { name: organization?.name || "" },
   });
+
+  // Fetch board access counts for members
+  useEffect(() => {
+    const fetchBoardCounts = async () => {
+      if (!organization?.id || members.length === 0) return;
+
+      try {
+        const memberIds = members.map((m) => m.id);
+        const { data, error } = await supabase
+          .from("member_board_access")
+          .select("member_id")
+          .in("member_id", memberIds);
+
+        if (error) throw error;
+
+        // Count boards per member
+        const counts: Record<string, number> = {};
+        for (const access of data || []) {
+          counts[access.member_id] = (counts[access.member_id] || 0) + 1;
+        }
+        setMemberBoardCounts(counts);
+      } catch (err) {
+        console.error("Error fetching board counts:", err);
+      }
+    };
+
+    fetchBoardCounts();
+  }, [organization?.id, members]);
 
   // Handlers
   const handleInvite = async (data: InviteFormData) => {
@@ -208,6 +252,40 @@ export default function Organization() {
       role: member.role === "owner" ? "member" : (member.role as "admin" | "member"),
     });
     setEditMemberDialogOpen(true);
+  };
+
+  // Member view handlers
+  const handleViewMember = (member: OrganizationMember) => {
+    setSelectedMemberForView(member);
+    setIsViewSheetOpen(true);
+  };
+
+  const handleEditBoardAccess = (member: OrganizationMember) => {
+    setSelectedMemberForBoardEdit(member);
+    setIsEditBoardDialogOpen(true);
+  };
+
+  const handleBoardAccessSaved = async () => {
+    // Refetch board counts
+    if (!organization?.id || members.length === 0) return;
+
+    try {
+      const memberIds = members.map((m) => m.id);
+      const { data, error } = await supabase
+        .from("member_board_access")
+        .select("member_id")
+        .in("member_id", memberIds);
+
+      if (error) throw error;
+
+      const counts: Record<string, number> = {};
+      for (const access of data || []) {
+        counts[access.member_id] = (counts[access.member_id] || 0) + 1;
+      }
+      setMemberBoardCounts(counts);
+    } catch (err) {
+      console.error("Error refetching board counts:", err);
+    }
   };
 
   // Owner-only protection
@@ -403,6 +481,7 @@ export default function Organization() {
                     <TableHead>Email</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Boards</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -411,6 +490,7 @@ export default function Organization() {
                     const isCurrentUser = member.user_id === user?.id;
                     const isOwner = member.role === "owner";
                     const displayName = member.display_name || member.email.split("@")[0];
+                    const boardCount = memberBoardCounts[member.id] || 0;
 
                     return (
                       <TableRow key={member.id}>
@@ -426,44 +506,90 @@ export default function Organization() {
                             {member.status.charAt(0).toUpperCase() + member.status.slice(1)}
                           </Badge>
                         </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{boardCount}</Badge>
+                        </TableCell>
                         <TableCell className="text-right">
                           {isCurrentUser && isOwner ? (
                             <span className="text-sm text-muted-foreground">You</span>
                           ) : (
-                            <div className="flex items-center justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openEditMemberDialog(member)}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive">
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Remove Team Member</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      Are you sure you want to remove {displayName} from the
-                                      organization? This action cannot be undone.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction
-                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                      onClick={() => handleRemoveMember(member)}
+                            <TooltipProvider>
+                              <div className="flex items-center justify-end gap-1">
+                                {/* View Member Tasks */}
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleViewMember(member)}
                                     >
-                                      Remove
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </div>
+                                      <Eye className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>View Tasks</TooltipContent>
+                                </Tooltip>
+
+                                {/* Edit Board Access */}
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleEditBoardAccess(member)}
+                                    >
+                                      <Settings className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit Boards</TooltipContent>
+                                </Tooltip>
+
+                                {/* Edit Member */}
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => openEditMemberDialog(member)}
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit Member</TooltipContent>
+                                </Tooltip>
+
+                                {/* Remove Member */}
+                                <AlertDialog>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <AlertDialogTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive">
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Remove</TooltipContent>
+                                  </Tooltip>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Remove Team Member</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Are you sure you want to remove {displayName} from the
+                                        organization? This action cannot be undone.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                        onClick={() => handleRemoveMember(member)}
+                                      >
+                                        Remove
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </div>
+                            </TooltipProvider>
                           )}
                         </TableCell>
                       </TableRow>
@@ -538,6 +664,31 @@ export default function Organization() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {/* Member View Sheet */}
+      <MemberViewSheet
+        isOpen={isViewSheetOpen}
+        onClose={() => {
+          setIsViewSheetOpen(false);
+          setSelectedMemberForView(null);
+        }}
+        member={selectedMemberForView}
+        onEditBoardAccess={(member) => {
+          handleEditBoardAccess(member);
+        }}
+      />
+
+      {/* Edit Board Access Dialog */}
+      <EditBoardAccessDialog
+        isOpen={isEditBoardDialogOpen}
+        onClose={() => {
+          setIsEditBoardDialogOpen(false);
+          setSelectedMemberForBoardEdit(null);
+        }}
+        member={selectedMemberForBoardEdit}
+        organizationId={organization.id}
+        onSaved={handleBoardAccessSaved}
+      />
     </div>
   );
 }
