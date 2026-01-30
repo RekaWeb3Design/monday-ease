@@ -71,26 +71,129 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const userId = claimsData.claims.sub as string;
-    console.log("Authenticated user:", userId);
+    const callerUserId = claimsData.claims.sub as string;
+    console.log("Authenticated user:", callerUserId);
 
-    // Get the member's organization membership
-    const { data: membership, error: membershipError } = await supabase
-      .from("organization_members")
-      .select("id, organization_id, role")
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .single();
+    // Check for member_id query parameter (owner impersonation)
+    const url = new URL(req.url);
+    const targetMemberId = url.searchParams.get("member_id");
+    
+    let targetMembershipId: string;
+    let organizationId: string;
+    let ownerId: string;
 
-    if (membershipError || !membership) {
-      console.error("No active membership found:", membershipError);
-      return new Response(
-        JSON.stringify({ tasks: [], message: "No active organization membership found" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (targetMemberId) {
+      // Owner is trying to view a specific member's tasks
+      console.log("Owner viewing member tasks for member_id:", targetMemberId);
+      
+      // First, get the caller's membership to check if they're an owner
+      const { data: callerMembership, error: callerMembershipError } = await supabase
+        .from("organization_members")
+        .select("role, organization_id")
+        .eq("user_id", callerUserId)
+        .eq("status", "active")
+        .single();
+
+      if (callerMembershipError || !callerMembership) {
+        console.error("Caller has no active membership:", callerMembershipError);
+        return new Response(
+          JSON.stringify({ error: "Not authorized to view member tasks" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Check if caller is the organization owner
+      if (callerMembership.role !== "owner") {
+        console.error("Only owners can view other member's tasks");
+        return new Response(
+          JSON.stringify({ error: "Only owners can view other member's tasks" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Get the target member's membership to verify they're in the same org
+      const { data: targetMember, error: targetMemberError } = await supabase
+        .from("organization_members")
+        .select("id, organization_id")
+        .eq("id", targetMemberId)
+        .eq("status", "active")
+        .single();
+
+      if (targetMemberError || !targetMember) {
+        console.error("Target member not found:", targetMemberError);
+        return new Response(
+          JSON.stringify({ error: "Member not found" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Verify target member is in the same organization
+      if (targetMember.organization_id !== callerMembership.organization_id) {
+        console.error("Target member is not in the caller's organization");
+        return new Response(
+          JSON.stringify({ error: "Member not in your organization" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      targetMembershipId = targetMember.id;
+      organizationId = targetMember.organization_id;
+      
+      // Get the organization owner_id
+      const { data: org, error: orgError } = await supabase
+        .from("organizations")
+        .select("owner_id")
+        .eq("id", organizationId)
+        .single();
+
+      if (orgError || !org) {
+        console.error("Organization not found:", orgError);
+        return new Response(
+          JSON.stringify({ error: "Organization not found" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      
+      ownerId = org.owner_id;
+    } else {
+      // Regular flow: user is fetching their own tasks
+      const { data: membership, error: membershipError } = await supabase
+        .from("organization_members")
+        .select("id, organization_id, role")
+        .eq("user_id", callerUserId)
+        .eq("status", "active")
+        .single();
+
+      if (membershipError || !membership) {
+        console.error("No active membership found:", membershipError);
+        return new Response(
+          JSON.stringify({ tasks: [], message: "No active organization membership found" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      console.log("Member found:", membership.id, "Org:", membership.organization_id);
+
+      targetMembershipId = membership.id;
+      organizationId = membership.organization_id;
+
+      // Get the organization to find the owner
+      const { data: org, error: orgError } = await supabase
+        .from("organizations")
+        .select("owner_id")
+        .eq("id", organizationId)
+        .single();
+
+      if (orgError || !org) {
+        console.error("Organization not found:", orgError);
+        return new Response(
+          JSON.stringify({ error: "Organization not found" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      ownerId = org.owner_id;
     }
-
-    console.log("Member found:", membership.id, "Org:", membership.organization_id);
 
     // Get the member's board access configurations
     const { data: boardAccess, error: accessError } = await supabase
@@ -107,7 +210,7 @@ Deno.serve(async (req: Request) => {
           is_active
         )
       `)
-      .eq("member_id", membership.id);
+      .eq("member_id", targetMembershipId);
 
     if (accessError) {
       console.error("Error fetching board access:", accessError);
@@ -120,7 +223,7 @@ Deno.serve(async (req: Request) => {
     if (!boardAccess || boardAccess.length === 0) {
       console.log("No board access configured for member");
       return new Response(
-        JSON.stringify({ tasks: [], message: "No boards assigned to you yet" }),
+        JSON.stringify({ tasks: [], message: "No boards assigned to this member yet" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -133,23 +236,8 @@ Deno.serve(async (req: Request) => {
     if (activeAccess.length === 0) {
       console.log("No active board configurations");
       return new Response(
-        JSON.stringify({ tasks: [], message: "No active boards assigned to you" }),
+        JSON.stringify({ tasks: [], message: "No active boards assigned to this member" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Get the organization to find the owner
-    const { data: org, error: orgError } = await supabase
-      .from("organizations")
-      .select("owner_id")
-      .eq("id", membership.organization_id)
-      .single();
-
-    if (orgError || !org) {
-      console.error("Organization not found:", orgError);
-      return new Response(
-        JSON.stringify({ error: "Organization not found" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -161,7 +249,7 @@ Deno.serve(async (req: Request) => {
     const { data: integration, error: integrationError } = await adminClient
       .from("user_integrations")
       .select("access_token")
-      .eq("user_id", org.owner_id)
+      .eq("user_id", ownerId)
       .eq("integration_type", "monday")
       .eq("status", "connected")
       .single();
