@@ -1,9 +1,9 @@
 
 
-## Member Dashboard Implementation
+## Workflow Templates UI Implementation
 
 ### Overview
-Create a simplified dashboard for team members (non-owners) to view their filtered tasks from Monday.com based on their assigned board access and filter values.
+Create a Templates page to display workflow templates and allow users to execute them, plus an Execution History page to track past executions.
 
 ---
 
@@ -11,28 +11,43 @@ Create a simplified dashboard for team members (non-owners) to view their filter
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
-│                       MemberDashboard Page                          │
-│  /member (protected, accessible to all roles)                       │
+│                       Templates Page (/templates)                   │
 ├─────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ Header: "My Tasks"                                           │   │
+│  │ Header: "Workflow Templates"                                 │   │
+│  │ Description: "Automate your Monday.com workflows"            │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐     │
+│  │  TemplateCard   │  │  TemplateCard   │  │  TemplateCard   │     │
+│  │  - Icon         │  │  - Icon         │  │  - Icon         │     │
+│  │  - Name         │  │  - Name         │  │  - Name         │     │
+│  │  - Description  │  │  - Description  │  │  - Description  │     │
+│  │  - Category     │  │  - Category     │  │  - Category     │     │
+│  │  [Premium]      │  │  [Run]          │  │  [Run]          │     │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘     │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │   ExecuteTemplateDialog (when Run clicked)                   │   │
+│  │   - Template name                                            │   │
+│  │   - Board selection (from Monday.com boards)                 │   │
+│  │   - Task name input                                          │   │
+│  │   - Execute button                                           │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Execution History (/activity)                    │
+├─────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ Header: "Execution History"                                  │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                      TaskStats                               │   │
-│  │  [Total: 12]    [In Progress: 5]    [Done: 7]               │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │  TaskCard    │  │  TaskCard    │  │  TaskCard    │   ...        │
-│  │  - Name      │  │  - Name      │  │  - Name      │              │
-│  │  - Board     │  │  - Board     │  │  - Board     │              │
-│  │  - Status    │  │  - Status    │  │  - Status    │              │
-│  └──────────────┘  └──────────────┘  └──────────────┘              │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │        Empty State (if no tasks assigned)                    │   │
-│  │  "No tasks assigned to you yet" + friendly message           │   │
+│  │ Table:                                                       │   │
+│  │  Template Name  |  Status  |  Started At  |  Duration       │   │
+│  │  Create Task    |  [done]  |  2 min ago   |  1.2s           │   │
+│  │  Sync Board     |  [fail]  |  5 min ago   |  0.8s           │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -43,18 +58,19 @@ Create a simplified dashboard for team members (non-owners) to view their filter
 
 | File | Purpose |
 |------|---------|
-| `src/pages/MemberDashboard.tsx` | Main member dashboard page |
-| `src/hooks/useMemberTasks.ts` | Hook to fetch tasks from edge function |
-| `src/components/member/TaskCard.tsx` | Card displaying individual task |
-| `src/components/member/TaskStats.tsx` | Stats cards showing task counts |
+| `src/pages/Templates.tsx` | Main templates page with grid |
+| `src/pages/ExecutionHistory.tsx` | Execution history page |
+| `src/hooks/useWorkflowTemplates.ts` | Fetch active templates from DB |
+| `src/hooks/useWorkflowExecutions.ts` | Fetch/create executions |
+| `src/components/templates/TemplateCard.tsx` | Card for each template |
+| `src/components/templates/ExecuteTemplateDialog.tsx` | Run template dialog |
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/layout/AppSidebar.tsx` | Update nav for member vs owner roles |
-| `src/App.tsx` | Add route for `/member` |
-| `src/types/index.ts` | Add MondayTask type |
+| `src/types/index.ts` | Add WorkflowTemplate and WorkflowExecution types |
+| `src/App.tsx` | Add routes for `/templates` and `/activity` |
 
 ---
 
@@ -62,263 +78,425 @@ Create a simplified dashboard for team members (non-owners) to view their filter
 
 #### 1. Types (`src/types/index.ts`)
 
-Add new types for Monday.com tasks:
+Add two new interfaces for workflow functionality:
 
 ```typescript
-// Monday.com task item from API
-export interface MondayTask {
+// Workflow template from database
+export interface WorkflowTemplate {
   id: string;
   name: string;
-  board_id: string;
-  board_name: string;
-  column_values: MondayColumnValue[];
+  description: string | null;
+  category: string;
+  icon: string;
+  n8n_webhook_url: string;
+  input_schema: Record<string, any>;
+  is_active: boolean;
+  is_premium: boolean;
+  execution_count: number;
   created_at: string;
-  updated_at: string;
 }
 
-// Column value from Monday.com
-export interface MondayColumnValue {
+// Workflow execution record
+export interface WorkflowExecution {
   id: string;
-  title: string;
-  type: string;
-  text: string | null;
-  value: any;
+  template_id: string | null;
+  organization_id: string;
+  user_id: string | null;
+  status: 'pending' | 'running' | 'success' | 'failed';
+  input_params: Record<string, any>;
+  output_result: Record<string, any> | null;
+  error_message: string | null;
+  started_at: string;
+  completed_at: string | null;
+  execution_time_ms: number | null;
+  created_at: string;
+  workflow_templates?: WorkflowTemplate;
 }
 ```
 
-#### 2. useMemberTasks Hook (`src/hooks/useMemberTasks.ts`)
+#### 2. useWorkflowTemplates Hook (`src/hooks/useWorkflowTemplates.ts`)
 
-Hook that calls the `get-member-tasks` Edge Function:
+Hook to fetch active templates from the `workflow_templates` table:
 
 ```typescript
-import { useState, useCallback, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/hooks/use-toast";
-import type { MondayTask } from "@/types";
+export function useWorkflowTemplates() {
+  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-interface UseMemberTasksReturn {
-  tasks: MondayTask[];
-  isLoading: boolean;
-  error: string | null;
-  refetch: () => Promise<void>;
-}
+  const fetchTemplates = useCallback(async () => {
+    // Query workflow_templates where is_active = true
+    // Order by execution_count desc (popular first)
+    // Handle errors with toast
+  }, []);
 
-export function useMemberTasks(): UseMemberTasksReturn {
-  // State for tasks, loading, error
-  // fetchTasks function that:
-  //   1. Gets JWT token from supabase.auth.getSession()
-  //   2. Calls https://yqjugovqhvxoxvrceqqp.supabase.co/functions/v1/get-member-tasks
-  //   3. Passes Authorization: Bearer {token} header
-  //   4. Returns tasks array or shows error toast
-  // Auto-fetch on mount via useEffect
-  // Return { tasks, isLoading, error, refetch }
+  useEffect(() => {
+    fetchTemplates();
+  }, [fetchTemplates]);
+
+  return { templates, isLoading, error, refetch: fetchTemplates };
 }
 ```
 
-#### 3. TaskStats Component (`src/components/member/TaskStats.tsx`)
+#### 3. useWorkflowExecutions Hook (`src/hooks/useWorkflowExecutions.ts`)
 
-Stats cards showing task counts by status:
+Hook to fetch and create execution records:
 
 ```typescript
-interface TaskStatsProps {
-  tasks: MondayTask[];
+export function useWorkflowExecutions() {
+  const { organization } = useAuth();
+  const [executions, setExecutions] = useState<WorkflowExecution[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchExecutions = useCallback(async () => {
+    // Query workflow_executions for current organization
+    // Join with workflow_templates to get template name
+    // Order by started_at desc (newest first)
+    // Limit to 50 recent executions
+  }, [organization]);
+
+  const createExecution = useCallback(async (
+    templateId: string,
+    inputParams: Record<string, any>
+  ): Promise<boolean> => {
+    // Insert new execution with status 'pending'
+    // Show toast: "Workflow queued"
+    // Return success/failure
+  }, [organization]);
+
+  return { executions, isLoading, createExecution, refetch: fetchExecutions };
+}
+```
+
+#### 4. TemplateCard Component (`src/components/templates/TemplateCard.tsx`)
+
+Card displaying a single template:
+
+```typescript
+interface TemplateCardProps {
+  template: WorkflowTemplate;
+  onRun: (template: WorkflowTemplate) => void;
 }
 
-export function TaskStats({ tasks }: TaskStatsProps) {
-  // Calculate stats from tasks:
-  // - Total Tasks count
-  // - Group by status column if exists
-  // - Show In Progress, Done counts
+export function TemplateCard({ template, onRun }: TemplateCardProps) {
+  // Dynamic icon from lucide-react using template.icon field
+  // Map common icon names: "zap", "calendar", "mail", etc.
   
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
-      <Card>
-        <CardHeader>Total Tasks</CardHeader>
-        <CardContent>{total}</CardContent>
-      </Card>
-      {/* Additional status-based cards */}
-    </div>
-  );
-}
-```
-
-#### 4. TaskCard Component (`src/components/member/TaskCard.tsx`)
-
-Card displaying individual task:
-
-```typescript
-interface TaskCardProps {
-  task: MondayTask;
-}
-
-export function TaskCard({ task }: TaskCardProps) {
-  // Helper to find status column value
-  // Helper to get status color based on value
-  
-  return (
-    <Card>
+    <Card className="hover:shadow-md transition-shadow">
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>{task.name}</CardTitle>
-          <Badge>{task.board_name}</Badge>
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <IconComponent className="h-8 w-8 text-primary" />
+            <div>
+              <CardTitle>{template.name}</CardTitle>
+              {template.is_premium && (
+                <Badge className="bg-[#ffcd03] text-black">Premium</Badge>
+              )}
+            </div>
+          </div>
         </div>
+        <CardDescription>{template.description}</CardDescription>
       </CardHeader>
       <CardContent>
-        {/* Display visible column values */}
-        {/* Status badge with color */}
+        <div className="flex items-center justify-between">
+          <div className="flex gap-2">
+            <Badge variant="outline">{template.category}</Badge>
+            <span className="text-xs text-muted-foreground">
+              {template.execution_count} runs
+            </span>
+          </div>
+          <Button onClick={() => onRun(template)}>
+            Run
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
 }
 ```
 
-#### 5. MemberDashboard Page (`src/pages/MemberDashboard.tsx`)
+#### 5. ExecuteTemplateDialog Component (`src/components/templates/ExecuteTemplateDialog.tsx`)
 
-Main dashboard page:
+Dialog for running a template:
 
 ```typescript
-export default function MemberDashboard() {
-  const { profile } = useAuth();
-  const { tasks, isLoading, error, refetch } = useMemberTasks();
+interface ExecuteTemplateDialogProps {
+  template: WorkflowTemplate | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess: () => void;
+}
 
-  const displayName = profile?.full_name || "there";
+export function ExecuteTemplateDialog({
+  template,
+  open,
+  onOpenChange,
+  onSuccess,
+}: ExecuteTemplateDialogProps) {
+  const { boards, fetchBoards } = useMondayBoards();
+  const { createExecution } = useWorkflowExecutions();
+  
+  const [selectedBoardId, setSelectedBoardId] = useState("");
+  const [taskName, setTaskName] = useState("");
+  const [isExecuting, setIsExecuting] = useState(false);
 
-  // Loading state with spinner
-  if (isLoading) {
-    return <LoadingSpinner />;
-  }
+  // Fetch boards when dialog opens
+  // Handle execute: create execution record with input_params
+  // Show toast on success/failure
+  // Reset form and close dialog
 
-  // Empty state if no tasks
-  if (tasks.length === 0) {
-    return (
-      <div className="space-y-6">
-        <Header />
-        <EmptyState
-          title="No tasks assigned to you yet"
-          description="Once your team owner assigns you to tasks, they'll appear here."
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Run: {template?.name}</DialogTitle>
+          <DialogDescription>
+            Configure the workflow parameters
+          </DialogDescription>
+        </DialogHeader>
+        
+        {/* Board selection dropdown */}
+        <Select value={selectedBoardId} onValueChange={setSelectedBoardId}>
+          <SelectTrigger>
+            <SelectValue placeholder="Select a board..." />
+          </SelectTrigger>
+          <SelectContent>
+            {boards.map((board) => (
+              <SelectItem key={board.id} value={board.id}>
+                {board.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        
+        {/* Task name input */}
+        <Input
+          placeholder="Task name (optional)"
+          value={taskName}
+          onChange={(e) => setTaskName(e.target.value)}
         />
-      </div>
-    );
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleExecute} disabled={!selectedBoardId || isExecuting}>
+            {isExecuting ? <Loader2 /> : "Execute"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+#### 6. Templates Page (`src/pages/Templates.tsx`)
+
+Main templates page:
+
+```typescript
+export default function Templates() {
+  const { templates, isLoading } = useWorkflowTemplates();
+  const [selectedTemplate, setSelectedTemplate] = useState<WorkflowTemplate | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const handleRun = (template: WorkflowTemplate) => {
+    setSelectedTemplate(template);
+    setDialogOpen(true);
+  };
+
+  if (isLoading) {
+    return <LoadingState />;
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">My Tasks</h1>
+        <h1 className="text-2xl font-bold">Workflow Templates</h1>
         <p className="text-muted-foreground">
-          Welcome back, {displayName}! Here are your assigned tasks.
+          Automate your Monday.com workflows with pre-built templates
         </p>
       </div>
 
-      {/* Stats row */}
-      <TaskStats tasks={tasks} />
+      {/* Empty state or grid */}
+      {templates.length === 0 ? (
+        <EmptyState
+          icon={Zap}
+          title="No templates available"
+          description="Check back soon for new automation templates."
+        />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {templates.map((template) => (
+            <TemplateCard
+              key={template.id}
+              template={template}
+              onRun={handleRun}
+            />
+          ))}
+        </div>
+      )}
 
-      {/* Task grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {tasks.map((task) => (
-          <TaskCard key={task.id} task={task} />
-        ))}
-      </div>
+      <ExecuteTemplateDialog
+        template={selectedTemplate}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onSuccess={() => setDialogOpen(false)}
+      />
     </div>
   );
 }
 ```
 
-#### 6. AppSidebar Update (`src/components/layout/AppSidebar.tsx`)
+#### 7. ExecutionHistory Page (`src/pages/ExecutionHistory.tsx`)
 
-Update navigation based on user role:
+Execution history page with table:
 
 ```typescript
-// Define base nav items (available to all)
-const baseNavItems: NavItem[] = [
-  { title: "Settings", url: "/settings", icon: Settings },
-];
+export default function ExecutionHistory() {
+  const { executions, isLoading, refetch } = useWorkflowExecutions();
 
-// Owner nav items
-const ownerNavItems: NavItem[] = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Organization", url: "/organization", icon: Building2 },
-  { title: "Integrations", url: "/integrations", icon: Plug },
-  { title: "Boards", url: "/boards", icon: LayoutGrid },
-  { title: "Templates", url: "/templates", icon: Zap },
-  { title: "Activity", url: "/activity", icon: Activity },
-];
+  // Status badge helper
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "success":
+        return <Badge className="bg-[#01cb72]">Success</Badge>;
+      case "failed":
+        return <Badge className="bg-[#fb275d]">Failed</Badge>;
+      case "running":
+        return <Badge className="bg-blue-500">Running</Badge>;
+      case "pending":
+        return <Badge className="bg-[#ffcd03] text-black">Pending</Badge>;
+    }
+  };
 
-// Member nav items
-const memberNavItems: NavItem[] = [
-  { title: "My Tasks", url: "/member", icon: ClipboardList },
-];
+  // Duration formatter
+  const formatDuration = (ms: number | null) => {
+    if (!ms) return "-";
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  };
 
-// In render:
-const displayNavItems = isOwner 
-  ? [...ownerNavItems, ...baseNavItems]
-  : [...memberNavItems, ...baseNavItems];
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Execution History</h1>
+          <p className="text-muted-foreground">
+            Track your workflow execution results
+          </p>
+        </div>
+        <Button variant="outline" onClick={refetch}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <LoadingState />
+      ) : executions.length === 0 ? (
+        <EmptyState
+          icon={Activity}
+          title="No executions yet"
+          description="Run a workflow template to see execution history here."
+        />
+      ) : (
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Template</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Started</TableHead>
+                <TableHead>Duration</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {executions.map((exec) => (
+                <TableRow key={exec.id}>
+                  <TableCell>
+                    {exec.workflow_templates?.name || "Unknown"}
+                  </TableCell>
+                  <TableCell>{getStatusBadge(exec.status)}</TableCell>
+                  <TableCell>
+                    {formatDistanceToNow(new Date(exec.started_at))} ago
+                  </TableCell>
+                  <TableCell>
+                    {formatDuration(exec.execution_time_ms)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+    </div>
+  );
+}
 ```
 
-#### 7. App.tsx Update
+#### 8. App.tsx Routes Update
 
-Add route for member dashboard and auto-redirect logic:
+Add routes for Templates and ExecutionHistory:
 
 ```typescript
-// Add import
-import MemberDashboard from "./pages/MemberDashboard";
+// Add imports
+import Templates from "./pages/Templates";
+import ExecutionHistory from "./pages/ExecutionHistory";
 
-// Add route before catch-all:
+// Add routes (before catch-all):
 <Route
-  path="/member"
+  path="/templates"
   element={
     <ProtectedRoute>
       <RequireOrganization>
-        <AppLayout pageTitle="My Tasks">
-          <MemberDashboard />
+        <AppLayout pageTitle="Templates">
+          <Templates />
         </AppLayout>
       </RequireOrganization>
     </ProtectedRoute>
   }
 />
-
-// Modify "/" route to use a smart redirect component:
 <Route
-  path="/"
+  path="/activity"
   element={
     <ProtectedRoute>
       <RequireOrganization>
-        <DashboardRedirect />
+        <AppLayout pageTitle="Activity">
+          <ExecutionHistory />
+        </AppLayout>
       </RequireOrganization>
     </ProtectedRoute>
   }
 />
 ```
 
-#### 8. Create DashboardRedirect Component
+---
 
-Component that redirects based on role:
+### Dynamic Icon Mapping
+
+For `TemplateCard`, map the icon string to lucide-react components:
 
 ```typescript
-// src/components/auth/DashboardRedirect.tsx
-import { Navigate } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
-import { Loader2 } from "lucide-react";
+import * as Icons from "lucide-react";
 
-export function DashboardRedirect() {
-  const { memberRole, loading } = useAuth();
+const iconMap: Record<string, React.ComponentType<any>> = {
+  zap: Icons.Zap,
+  calendar: Icons.Calendar,
+  mail: Icons.Mail,
+  clipboard: Icons.Clipboard,
+  "file-text": Icons.FileText,
+  users: Icons.Users,
+  bell: Icons.Bell,
+  check: Icons.Check,
+  send: Icons.Send,
+  settings: Icons.Settings,
+};
 
-  if (loading) {
-    return <LoadingSpinner />;
-  }
-
-  // Members go to /member, owners go to dashboard
-  if (memberRole !== "owner") {
-    return <Navigate to="/member" replace />;
-  }
-
-  // Owners see the main dashboard
-  return (
-    <AppLayout pageTitle="Dashboard">
-      <Dashboard />
-    </AppLayout>
-  );
+function getIcon(iconName: string): React.ComponentType<any> {
+  return iconMap[iconName.toLowerCase()] || Icons.Zap;
 }
 ```
 
@@ -326,49 +504,38 @@ export function DashboardRedirect() {
 
 ### Status Badge Colors
 
-The TaskCard will use consistent colors for status badges:
+Consistent with project branding:
 
 | Status | Color | Tailwind Class |
 |--------|-------|----------------|
-| Done / Completed | Green (#01cb72) | `bg-[#01cb72] text-white` |
-| In Progress / Working | Yellow (#ffcd03) | `bg-[#ffcd03] text-black` |
-| Stuck / Blocked | Red (#fb275d) | `bg-[#fb275d] text-white` |
-| Default | Gray | `bg-gray-100 text-gray-800` |
+| Success | Green (#01cb72) | `bg-[#01cb72] text-white` |
+| Failed | Red (#fb275d) | `bg-[#fb275d] text-white` |
+| Running | Blue | `bg-blue-500 text-white` |
+| Pending | Yellow (#ffcd03) | `bg-[#ffcd03] text-black` |
 
 ---
 
-### Edge Function Dependency
+### Database Integration
 
-The implementation assumes the `get-member-tasks` Edge Function exists at:
-`https://yqjugovqhvxoxvrceqqp.supabase.co/functions/v1/get-member-tasks`
+The implementation uses existing tables:
 
-Expected behavior:
-- Accepts JWT in Authorization header
-- Identifies calling member from token
-- Looks up member's board access in `member_board_access`
-- Uses OWNER's Monday.com token to fetch items
-- Filters items by member's filter_value
-- Returns only visible_columns for each board config
+**workflow_templates table:**
+- RLS allows SELECT for active templates (is_active = true)
+- No INSERT/UPDATE/DELETE for regular users
 
-If the Edge Function is not yet deployed, I will create it as part of this implementation.
+**workflow_executions table:**
+- RLS allows INSERT for org members
+- RLS allows SELECT for org members
+- Service role can UPDATE (for status changes)
 
 ---
 
-### Technical Notes
+### Key Implementation Notes
 
-**Authentication Flow:**
-1. Member logs in via email/password
-2. JWT token identifies the member
-3. Edge function uses member's org to find owner
-4. Owner's Monday.com token is used for API calls
-5. Items are filtered based on member_board_access table
-
-**Empty State UX:**
-- Friendly message: "No tasks assigned to you yet"
-- Helpful subtext: "Once your team owner assigns you to tasks, they'll appear here."
-- Uses MondayEase logo for branding
-
-**Loading States:**
-- Full page loader while fetching tasks
-- Skeleton cards could be used for smoother UX
+1. **No n8n calls yet** - Only create execution records with status 'pending'
+2. **Follow existing patterns** - Use same structure as BoardConfig, useBoardConfigs
+3. **Empty states** - Friendly messages with relevant icons
+4. **Loading states** - Use Loader2 spinner consistently
+5. **Toast notifications** - "Workflow queued" on successful execution creation
+6. **Date formatting** - Use date-fns formatDistanceToNow for relative times
 
