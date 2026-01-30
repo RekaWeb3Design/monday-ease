@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
-import { Loader2, AlertCircle, Check, ChevronsUpDown, User } from "lucide-react";
+import { Loader2, AlertCircle, Check, ChevronsUpDown, User, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useMondayUsers } from "@/hooks/useMondayUsers";
+import { useOrganizationMembers } from "@/hooks/useOrganizationMembers";
 
 import {
   Dialog,
@@ -24,6 +25,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from "@/components/ui/command";
 import {
   Popover,
@@ -67,6 +69,18 @@ export function EditBoardAccessDialog({
 
   // Monday users for person column dropdowns
   const { users: mondayUsers, isLoading: usersLoading, fetchUsers } = useMondayUsers();
+  
+  // Organization members for person column dropdowns
+  const { members: orgMembers, isLoading: membersLoading } = useOrganizationMembers();
+  
+  // Non-owner members for selection
+  const nonOwnerMembers = useMemo(() => 
+    orgMembers.filter(m => m.role !== 'owner'), 
+    [orgMembers]
+  );
+  
+  // Combined loading state
+  const isLoadingUsers = usersLoading || membersLoading;
 
   const displayName = member?.display_name || member?.email?.split("@")[0] || "Member";
 
@@ -261,8 +275,9 @@ export function EditBoardAccessDialog({
       `type:${access.filterColumnType} id:${access.filterColumnId} name:${access.filterColumnName}`);
     
     if (isPerson) {
-      // Render Combobox for person columns
-      const selectedUser = mondayUsers.find((u) => u.name === access.filterValue);
+      // Render Combobox for person columns with dual-source (org members + Monday users)
+      const selectedMondayUser = mondayUsers.find((u) => u.name === access.filterValue);
+      const selectedOrgMember = nonOwnerMembers.find((m) => m.display_name === access.filterValue);
       const isOpen = openPopovers[access.boardConfigId] || false;
 
       return (
@@ -273,9 +288,9 @@ export function EditBoardAccessDialog({
               role="combobox"
               aria-expanded={isOpen}
               className="w-full justify-between font-normal"
-              disabled={usersLoading}
+              disabled={isLoadingUsers}
             >
-              {usersLoading ? (
+              {isLoadingUsers ? (
                 <span className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading users...
@@ -283,7 +298,11 @@ export function EditBoardAccessDialog({
               ) : access.filterValue ? (
                 <span className="flex items-center gap-2">
                   <User className="h-4 w-4 text-muted-foreground" />
-                  {selectedUser ? `${selectedUser.name} (${selectedUser.email})` : access.filterValue}
+                  {selectedMondayUser 
+                    ? `${selectedMondayUser.name} (${selectedMondayUser.email})`
+                    : selectedOrgMember
+                    ? `${selectedOrgMember.display_name} (${selectedOrgMember.email})`
+                    : access.filterValue}
                 </span>
               ) : (
                 <span className="text-muted-foreground">Select a person...</span>
@@ -296,8 +315,9 @@ export function EditBoardAccessDialog({
               <CommandInput placeholder="Search users..." />
               <CommandList>
                 <CommandEmpty>No users found.</CommandEmpty>
+                
+                {/* Option to clear */}
                 <CommandGroup>
-                  {/* Option to clear */}
                   <CommandItem
                     value="__clear__"
                     onSelect={() => {
@@ -307,29 +327,67 @@ export function EditBoardAccessDialog({
                   >
                     <span className="text-muted-foreground">None (remove access)</span>
                   </CommandItem>
-                  {/* User options */}
-                  {mondayUsers.map((user) => (
-                    <CommandItem
-                      key={user.id}
-                      value={`${user.name} ${user.email}`}
-                      onSelect={() => {
-                        handleFilterValueChange(access.boardConfigId, user.name);
-                        togglePopover(access.boardConfigId, false);
-                      }}
-                    >
-                      <Check
-                        className={cn(
-                          "mr-2 h-4 w-4",
-                          access.filterValue === user.name ? "opacity-100" : "opacity-0"
-                        )}
-                      />
-                      <div className="flex flex-col">
-                        <span>{user.name}</span>
-                        <span className="text-xs text-muted-foreground">{user.email}</span>
-                      </div>
-                    </CommandItem>
-                  ))}
                 </CommandGroup>
+                
+                <CommandSeparator />
+                
+                {/* Organization Members */}
+                {nonOwnerMembers.length > 0 && (
+                  <CommandGroup heading="Organization Members">
+                    {nonOwnerMembers.map((member) => (
+                      <CommandItem
+                        key={`org-${member.id}`}
+                        value={`org ${member.display_name || ''} ${member.email}`}
+                        onSelect={() => {
+                          handleFilterValueChange(access.boardConfigId, member.display_name || member.email);
+                          togglePopover(access.boardConfigId, false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            access.filterValue === member.display_name ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <Users className="mr-2 h-4 w-4 text-primary" />
+                        <div className="flex flex-col">
+                          <span>{member.display_name || member.email}</span>
+                          <span className="text-xs text-muted-foreground">{member.email}</span>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+                
+                <CommandSeparator />
+                
+                {/* Monday.com Users */}
+                {mondayUsers.length > 0 && (
+                  <CommandGroup heading="Monday.com Users">
+                    {mondayUsers.map((user) => (
+                      <CommandItem
+                        key={`monday-${user.id}`}
+                        value={`monday ${user.name} ${user.email}`}
+                        onSelect={() => {
+                          handleFilterValueChange(access.boardConfigId, user.name);
+                          togglePopover(access.boardConfigId, false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            access.filterValue === user.name ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <User className="mr-2 h-4 w-4 text-muted-foreground" />
+                        <div className="flex flex-col">
+                          <span>{user.name}</span>
+                          <span className="text-xs text-muted-foreground">{user.email}</span>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
               </CommandList>
             </Command>
           </PopoverContent>
