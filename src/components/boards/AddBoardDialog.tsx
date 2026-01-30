@@ -107,7 +107,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     const success = await createConfig({
       monday_board_id: selectedBoard.id,
       board_name: selectedBoard.name,
-      filter_column_id: filterColumnId || null,
+      filter_column_id: filterColumnId === 'none' ? null : filterColumnId || null,
       filter_column_name: filterColumn?.title || null,
       visible_columns: visibleColumns,
       memberMappings: Object.entries(memberMappings)
@@ -221,7 +221,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
                     <SelectValue placeholder="Select a column..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None (show all rows)</SelectItem>
+                    <SelectItem value="none">None (show all rows)</SelectItem>
                     {selectedBoard.columns.map((col) => (
                       <SelectItem key={col.id} value={col.id}>
                         {col.title} ({col.type})
