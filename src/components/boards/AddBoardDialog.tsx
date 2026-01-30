@@ -1,5 +1,11 @@
 import { useState, useEffect } from "react";
-import { Loader2, ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, Check, Info } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -212,10 +218,19 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
           {step === 2 && selectedBoard && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Filter Column (Optional)</Label>
-                <p className="text-xs text-muted-foreground">
-                  Members will only see rows where this column matches their assigned value.
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <Label>Filter Column (Optional)</Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[280px]">
+                        <p>Choose which column determines what each member sees. For example, if you select 'Assigned Agent', members will only see rows where they are assigned. Leave as 'None' if all members should see all rows.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
                 <Select value={filterColumnId} onValueChange={setFilterColumnId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select a column..." />
@@ -232,10 +247,19 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
               </div>
 
               <div className="space-y-2">
-                <Label>Visible Columns (Optional)</Label>
-                <p className="text-xs text-muted-foreground">
-                  Select which columns members can see. Leave empty to show all.
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <Label>Visible Columns (Optional)</Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[280px]">
+                        <p>Select which columns members can see in their dashboard. Unselected columns will be hidden. Leave all unchecked to show every column.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
                 <ScrollArea className="h-[180px] rounded-md border p-3">
                   <div className="space-y-2">
                     {selectedBoard.columns.map((col) => (
@@ -273,9 +297,21 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
                 </div>
               ) : (
                 <>
-                  <p className="text-sm text-muted-foreground">
-                    Enter the filter value each member should see. Leave blank to skip.
-                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm text-muted-foreground">
+                      Enter the filter value each member should see. Leave blank to skip.
+                    </p>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="h-4 w-4 text-muted-foreground cursor-help flex-shrink-0" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[280px]">
+                          <p>Enter the exact value that matches this member in the Filter Column. For example, if Filter Column is 'Assigned Agent' and the member's name in Monday.com is 'Priya Desai', enter 'Priya Desai' here.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
                   <ScrollArea className="h-[240px] rounded-md border p-3">
                     <div className="space-y-3">
                       {mappableMembers.map((member) => (
