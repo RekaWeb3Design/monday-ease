@@ -47,10 +47,11 @@ export interface AuthContextType {
   session: Session | null;
   profile: UserProfile | null;
   organization: Organization | null;
+  pendingOrganization: Organization | null;
   memberRole: MemberRole | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, fullName: string) => Promise<void>;
+  signUp: (email: string, password: string, fullName: string, registrationType?: 'owner' | 'member', requestedOrgId?: string) => Promise<void>;
   signOut: () => Promise<void>;
   createOrganization: (name: string) => Promise<Organization>;
   refreshOrganization: () => Promise<void>;

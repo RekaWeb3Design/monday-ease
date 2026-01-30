@@ -8,7 +8,7 @@ interface RequireOrganizationProps {
 }
 
 export function RequireOrganization({ children }: RequireOrganizationProps) {
-  const { organization, loading } = useAuth();
+  const { organization, pendingOrganization, loading } = useAuth();
 
   if (loading) {
     return (
@@ -18,6 +18,12 @@ export function RequireOrganization({ children }: RequireOrganizationProps) {
     );
   }
 
+  // Redirect pending members to pending approval page
+  if (pendingOrganization && !organization) {
+    return <Navigate to="/pending-approval" replace />;
+  }
+
+  // Redirect users without org to onboarding
   if (!organization) {
     return <Navigate to="/onboarding" replace />;
   }
