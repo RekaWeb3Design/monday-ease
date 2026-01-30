@@ -2,8 +2,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMemberTasks } from "@/hooks/useMemberTasks";
 import { TaskStats } from "@/components/member/TaskStats";
 import { TaskCard } from "@/components/member/TaskCard";
-import { QuickActions } from "@/components/member/QuickActions";
-import { RecentActivity } from "@/components/member/RecentActivity";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, ClipboardList } from "lucide-react";
 
@@ -100,12 +98,6 @@ export default function MemberDashboard() {
           Refresh
         </Button>
       </div>
-
-      {/* Quick Actions */}
-      <QuickActions />
-
-      {/* Recent Activity */}
-      <RecentActivity />
 
       {/* Stats row */}
       <TaskStats tasks={tasks} />

@@ -10,7 +10,6 @@ import { DashboardRedirect } from "@/components/auth/DashboardRedirect";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Auth from "./pages/Auth";
 import Onboarding from "./pages/Onboarding";
-import PendingApproval from "./pages/PendingApproval";
 import Dashboard from "./pages/Dashboard";
 import MemberDashboard from "./pages/MemberDashboard";
 import Organization from "./pages/Organization";
@@ -37,14 +36,6 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Onboarding />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/pending-approval"
-              element={
-                <ProtectedRoute>
-                  <PendingApproval />
                 </ProtectedRoute>
               }
             />

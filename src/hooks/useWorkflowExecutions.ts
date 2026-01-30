@@ -2,13 +2,13 @@ import { useState, useCallback, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import type { WorkflowExecution, ExecutionResult } from "@/types";
+import type { WorkflowExecution } from "@/types";
 
 interface UseWorkflowExecutionsReturn {
   executions: WorkflowExecution[];
   isLoading: boolean;
   error: string | null;
-  createExecution: (templateId: string, inputParams: Record<string, any>) => Promise<ExecutionResult | null>;
+  createExecution: (templateId: string, inputParams: Record<string, any>) => Promise<boolean>;
   refetch: () => Promise<void>;
 }
 
@@ -40,9 +40,6 @@ export function useWorkflowExecutions(): UseWorkflowExecutionsReturn {
             description,
             category,
             icon
-          ),
-          user_profiles!workflow_executions_user_id_fkey (
-            email
           )
         `)
         .eq("organization_id", organization.id)
@@ -53,14 +50,8 @@ export function useWorkflowExecutions(): UseWorkflowExecutionsReturn {
         throw queryError;
       }
 
-      // Transform data to include user_email at top level
-      const transformedData = (data || []).map((exec: any) => ({
-        ...exec,
-        user_email: exec.user_profiles?.email || null,
-        user_profiles: undefined, // Remove nested object
-      }));
-
-      setExecutions(transformedData as WorkflowExecution[]);
+      // Cast to WorkflowExecution[] - status string is narrower in our type
+      setExecutions((data || []) as unknown as WorkflowExecution[]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to fetch executions";
       setError(message);
@@ -77,44 +68,48 @@ export function useWorkflowExecutions(): UseWorkflowExecutionsReturn {
   const createExecution = useCallback(async (
     templateId: string,
     inputParams: Record<string, any>
-  ): Promise<ExecutionResult | null> => {
+  ): Promise<boolean> => {
     if (!organization?.id || !user?.id) {
       toast({
         title: "Error",
         description: "Not authenticated",
         variant: "destructive",
       });
-      return null;
+      return false;
     }
 
     try {
-      const { data, error: invokeError } = await supabase.functions.invoke('execute-workflow', {
-        body: {
+      const { error: insertError } = await supabase
+        .from("workflow_executions")
+        .insert({
           template_id: templateId,
+          organization_id: organization.id,
+          user_id: user.id,
+          status: "pending",
           input_params: inputParams,
-        },
+          started_at: new Date().toISOString(),
+        });
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      toast({
+        title: "Workflow queued",
+        description: "Your workflow has been queued for execution.",
       });
-
-      if (invokeError) {
-        throw invokeError;
-      }
-
-      if (!data.success) {
-        throw new Error(data.error || "Workflow execution failed");
-      }
 
       // Refetch to update the list
       await fetchExecutions();
-
-      return data as ExecutionResult;
+      return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to execute workflow";
+      const message = err instanceof Error ? err.message : "Failed to create execution";
       toast({
-        title: "Execution Failed",
+        title: "Error",
         description: message,
         variant: "destructive",
       });
-      return null;
+      return false;
     }
   }, [organization?.id, user?.id, toast, fetchExecutions]);
 

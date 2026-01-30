@@ -1,17 +1,9 @@
-import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Activity, Loader2, RefreshCw } from "lucide-react";
 import { useWorkflowExecutions } from "@/hooks/useWorkflowExecutions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -20,8 +12,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-type StatusFilter = "all" | "pending" | "running" | "success" | "failed";
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -46,11 +36,6 @@ function formatDuration(ms: number | null): string {
 
 export default function ExecutionHistory() {
   const { executions, isLoading, refetch } = useWorkflowExecutions();
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-
-  const filteredExecutions = statusFilter === "all"
-    ? executions
-    : executions.filter((exec) => exec.status === statusFilter);
 
   return (
     <div className="space-y-6">
@@ -62,24 +47,10 @@ export default function ExecutionHistory() {
             Track your workflow execution results
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="running">Running</SelectItem>
-              <SelectItem value="success">Success</SelectItem>
-              <SelectItem value="failed">Failed</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" onClick={refetch} disabled={isLoading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-        </div>
+        <Button variant="outline" onClick={refetch} disabled={isLoading}>
+          <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
       </div>
 
       {/* Content */}
@@ -87,16 +58,14 @@ export default function ExecutionHistory() {
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
-      ) : filteredExecutions.length === 0 ? (
+      ) : executions.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
           <div className="rounded-full bg-primary/10 p-3 mb-4">
             <Activity className="h-6 w-6 text-primary" />
           </div>
           <h3 className="font-semibold">No executions yet</h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-            {statusFilter === "all"
-              ? "Run a workflow template to see execution history here."
-              : `No ${statusFilter} executions found.`}
+            Run a workflow template to see execution history here.
           </p>
         </div>
       ) : (
@@ -105,20 +74,16 @@ export default function ExecutionHistory() {
             <TableHeader>
               <TableRow>
                 <TableHead>Template</TableHead>
-                <TableHead>Run By</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Started</TableHead>
                 <TableHead>Duration</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredExecutions.map((exec) => (
+              {executions.map((exec) => (
                 <TableRow key={exec.id}>
                   <TableCell className="font-medium">
                     {exec.workflow_templates?.name || "Unknown Template"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {exec.user_email || "-"}
                   </TableCell>
                   <TableCell>{getStatusBadge(exec.status)}</TableCell>
                   <TableCell className="text-muted-foreground">

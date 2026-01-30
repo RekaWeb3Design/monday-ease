@@ -14,7 +14,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [organization, setOrganization] = useState<Organization | null>(null);
-  const [pendingOrganization, setPendingOrganization] = useState<Organization | null>(null);
   const [memberRole, setMemberRole] = useState<MemberRole | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -48,118 +47,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     if (ownedOrg) {
       setOrganization(ownedOrg as Organization);
-      setPendingOrganization(null);
       setMemberRole("owner");
       return;
     }
 
-    // Check for active membership
-    const { data: activeMembership, error: activeError } = await supabase
+    // Otherwise check membership
+    const { data: membership, error: memberError } = await supabase
       .from("organization_members")
       .select("*, organizations(*)")
       .eq("user_id", userId)
       .eq("status", "active")
       .maybeSingle();
 
-    if (activeError && activeError.code !== "PGRST116") {
-      console.error("Error fetching active membership:", activeError);
+    if (memberError && memberError.code !== "PGRST116") {
+      console.error("Error fetching membership:", memberError);
     }
 
-    if (activeMembership && activeMembership.organizations) {
-      setOrganization(activeMembership.organizations as unknown as Organization);
-      setPendingOrganization(null);
-      setMemberRole(activeMembership.role as MemberRole);
-      return;
-    }
-
-    // Check for pending membership
-    const { data: pendingMembership, error: pendingError } = await supabase
-      .from("organization_members")
-      .select("*, organizations(*)")
-      .eq("user_id", userId)
-      .eq("status", "pending")
-      .maybeSingle();
-
-    if (pendingError && pendingError.code !== "PGRST116") {
-      console.error("Error fetching pending membership:", pendingError);
-    }
-
-    if (pendingMembership && pendingMembership.organizations) {
-      // Set pending state
-      setPendingOrganization(pendingMembership.organizations as unknown as Organization);
+    if (membership && membership.organizations) {
+      setOrganization(membership.organizations as unknown as Organization);
+      setMemberRole(membership.role as MemberRole);
+    } else {
       setOrganization(null);
       setMemberRole(null);
-      return;
-    }
-
-    // No org at all
-    setOrganization(null);
-    setPendingOrganization(null);
-    setMemberRole(null);
-  }, []);
-
-  // Handle invited member activation (from email invite link)
-  // Uses Edge Function to bypass RLS since pending members have user_id = NULL
-  const handleInvitedMemberActivation = useCallback(async (currentUser: User): Promise<boolean> => {
-    const metadata = currentUser.user_metadata;
-
-    // Check if this user was invited to an organization
-    if (!metadata?.invited_to_organization) {
-      return false;
-    }
-
-    console.log("Detected invited member, calling Edge Function to activate...");
-
-    // Call Edge Function to activate membership (bypasses RLS)
-    const { data, error } = await supabase.functions.invoke('activate-invited-member');
-
-    if (error) {
-      console.error("Edge Function error:", error);
-      return false;
-    }
-
-    if (!data?.success) {
-      console.error("Activation failed:", data?.error);
-      return false;
-    }
-
-    console.log("Invited member activated via Edge Function:", data.organization_name);
-    return true;
-  }, []);
-
-  // Handle pending membership creation for self-registration
-  const handleMemberRegistration = useCallback(async (currentUser: User) => {
-    const metadata = currentUser.user_metadata;
-
-    // Skip if this is an invited member (handled by handleInvitedMemberActivation)
-    if (metadata?.invited_to_organization) {
-      return;
-    }
-    
-    if (metadata?.registration_type === 'member' && metadata?.requested_org_id) {
-      // Check if membership already exists
-      const { data: existingMembership } = await supabase
-        .from('organization_members')
-        .select('id')
-        .eq('user_id', currentUser.id)
-        .eq('organization_id', metadata.requested_org_id)
-        .maybeSingle();
-
-      if (!existingMembership) {
-        // Create pending membership
-        const { error } = await supabase.from('organization_members').insert({
-          organization_id: metadata.requested_org_id,
-          user_id: currentUser.id,
-          email: currentUser.email!,
-          display_name: metadata.full_name || null,
-          role: 'member',
-          status: 'pending',
-        });
-
-        if (error) {
-          console.error('Error creating pending membership:', error);
-        }
-      }
     }
   }, []);
 
@@ -220,7 +129,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     const typedOrg = org as Organization;
     setOrganization(typedOrg);
-    setPendingOrganization(null);
     setMemberRole("owner");
 
     return typedOrg;
@@ -239,15 +147,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
             try {
               const userProfile = await fetchProfile(newSession.user.id);
               setProfile(userProfile);
-              
-              // Handle invited member activation FIRST (highest priority)
-              const wasInvited = await handleInvitedMemberActivation(newSession.user);
-              
-              // Only handle self-registration if not an invited member
-              if (!wasInvited) {
-                await handleMemberRegistration(newSession.user);
-              }
-              
               await fetchOrganization(newSession.user.id);
             } catch (error) {
               console.error('Error loading user data:', error);
@@ -261,7 +160,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         } else {
           setProfile(null);
           setOrganization(null);
-          setPendingOrganization(null);
           setMemberRole(null);
           // Set loading false when there's no user
           if (event === "INITIAL_SESSION") {
@@ -279,22 +177,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (existingSession?.user) {
         const userProfile = await fetchProfile(existingSession.user.id);
         setProfile(userProfile);
-        
-        // Handle invited member activation FIRST (highest priority)
-        const wasInvited = await handleInvitedMemberActivation(existingSession.user);
-        
-        // Only handle self-registration if not an invited member
-        if (!wasInvited) {
-          await handleMemberRegistration(existingSession.user);
-        }
-        
         await fetchOrganization(existingSession.user.id);
       }
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchProfile, fetchOrganization, handleInvitedMemberActivation, handleMemberRegistration]);
+  }, [fetchProfile, fetchOrganization]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
@@ -304,13 +193,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (error) throw error;
   }, []);
 
-  const signUp = useCallback(async (
-    email: string, 
-    password: string, 
-    fullName: string,
-    registrationType: 'owner' | 'member' = 'owner',
-    requestedOrgId?: string
-  ) => {
+  const signUp = useCallback(async (email: string, password: string, fullName: string) => {
     const redirectUrl = `${window.location.origin}/`;
 
     const { error } = await supabase.auth.signUp({
@@ -320,8 +203,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         emailRedirectTo: redirectUrl,
         data: {
           full_name: fullName,
-          registration_type: registrationType,
-          requested_org_id: registrationType === 'member' ? requestedOrgId : null,
         },
       },
     });
@@ -340,7 +221,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         session,
         profile,
         organization,
-        pendingOrganization,
         memberRole,
         loading,
         signIn,

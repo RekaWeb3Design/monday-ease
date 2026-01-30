@@ -2,9 +2,3 @@ project_id = "yqjugovqhvxoxvrceqqp"
 
 [functions.get-member-tasks]
 verify_jwt = false
-
-[functions.invite-member]
-verify_jwt = false
-
-[functions.activate-invited-member]
-verify_jwt = false

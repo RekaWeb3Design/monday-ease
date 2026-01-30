@@ -72,37 +72,30 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
         throw new Error("Organization or user not available");
       }
 
-      // Call the invite-member Edge Function
-      const { data, error: invokeError } = await supabase.functions.invoke("invite-member", {
-        body: {
+      const { error: insertError } = await supabase
+        .from("organization_members")
+        .insert({
+          organization_id: organization.id,
+          user_id: null,
           email: email.toLowerCase().trim(),
-          displayName: displayName.trim(),
-          organizationId: organization.id,
-        },
-      });
+          display_name: displayName.trim(),
+          role: "member",
+          status: "pending",
+          invited_at: new Date().toISOString(),
+        });
 
-      if (invokeError) {
+      if (insertError) {
         toast({
           title: "Error",
-          description: invokeError.message || "Failed to invite member.",
+          description: insertError.message || "Failed to invite member.",
           variant: "destructive",
         });
-        throw invokeError;
-      }
-
-      // Check for error in response body
-      if (data?.error) {
-        toast({
-          title: "Error",
-          description: data.error,
-          variant: "destructive",
-        });
-        throw new Error(data.error);
+        throw insertError;
       }
 
       toast({
         title: "Invitation Sent",
-        description: `An invitation email has been sent to ${email}.`,
+        description: `${displayName} has been invited to join your organization.`,
       });
 
       await fetchMembers();

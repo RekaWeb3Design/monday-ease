@@ -47,11 +47,10 @@ export interface AuthContextType {
   session: Session | null;
   profile: UserProfile | null;
   organization: Organization | null;
-  pendingOrganization: Organization | null;
   memberRole: MemberRole | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, fullName: string, registrationType?: 'owner' | 'member', requestedOrgId?: string) => Promise<void>;
+  signUp: (email: string, password: string, fullName: string) => Promise<void>;
   signOut: () => Promise<void>;
   createOrganization: (name: string) => Promise<Organization>;
   refreshOrganization: () => Promise<void>;
@@ -185,15 +184,4 @@ export interface WorkflowExecution {
   execution_time_ms: number | null;
   created_at: string | null;
   workflow_templates?: WorkflowTemplate;
-  user_email?: string; // Joined from user_profiles
-}
-
-// Edge Function execution result
-export interface ExecutionResult {
-  success: boolean;
-  execution_id: string;
-  status: string;
-  result?: Record<string, any>;
-  execution_time_ms: number;
-  error?: string;
 }
