@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -27,6 +27,7 @@ import { getIconByName } from "@/components/board-views/IconPicker";
 import { useCustomBoardViews } from "@/hooks/useCustomBoardViews";
 import { useBoardViewData } from "@/hooks/useBoardViewData";
 import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 import type { CustomBoardView, ViewColumn, ViewSettings } from "@/types";
 import { format, parseISO, isPast, isToday, isThisWeek } from "date-fns";
 
@@ -34,6 +35,7 @@ export default function CustomViewPage() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { memberRole } = useAuth();
+  const { toast } = useToast();
   const isOwner = memberRole === "owner";
 
   const { views, getViewBySlug, updateView } = useCustomBoardViews();
@@ -41,6 +43,9 @@ export default function CustomViewPage() {
 
   // Find the view by slug
   const view = useMemo(() => getViewBySlug(slug || ""), [slug, getViewBySlug, views]);
+
+  // Local columns state for responsive reordering
+  const [localColumns, setLocalColumns] = useState<ViewColumn[]>([]);
 
   // Search, filter, and pagination state
   const [search, setSearch] = useState("");
@@ -76,6 +81,12 @@ export default function CustomViewPage() {
     sortOrder,
   });
 
+  // Sync local columns with view data
+  useEffect(() => {
+    const cols = viewData?.columns || view?.selected_columns || [];
+    setLocalColumns(cols as ViewColumn[]);
+  }, [viewData?.columns, view?.selected_columns]);
+
   // Reset sort to defaults when view loads
   useEffect(() => {
     if (view?.settings) {
@@ -83,6 +94,43 @@ export default function CustomViewPage() {
       setSortOrder(view.settings.default_sort_order);
     }
   }, [view?.id]);
+
+  // Debounced save for column reorder
+  const saveTimeoutRef = useRef<NodeJS.Timeout>();
+  
+  const debouncedSaveColumns = useCallback((newColumns: ViewColumn[]) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    saveTimeoutRef.current = setTimeout(async () => {
+      if (view) {
+        const success = await updateView(view.id, { selected_columns: newColumns });
+        if (success) {
+          toast({
+            title: "Column order saved",
+            description: "Your column arrangement has been saved.",
+          });
+        }
+      }
+    }, 1000);
+  }, [view, updateView, toast]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleColumnsReorder = useCallback((newColumns: ViewColumn[]) => {
+    // Update local state immediately for responsive UI
+    setLocalColumns(newColumns);
+    // Debounce the database save
+    debouncedSaveColumns(newColumns);
+  }, [debouncedSaveColumns]);
 
   const handleSort = (columnId: string) => {
     if (sortColumn === columnId) {
@@ -138,8 +186,10 @@ export default function CustomViewPage() {
 
   const IconComponent = getIconByName(view.icon);
   const settings = viewData?.settings || view.settings;
-  const columns = viewData?.columns || view.selected_columns;
   const totalPages = Math.ceil(totalCount / 50);
+
+  // Use localColumns for display and filter options
+  const columns = localColumns.length > 0 ? localColumns : (viewData?.columns || view.selected_columns) as ViewColumn[];
 
   // Extract unique filter options from items for each filterable column
   const filterOptions: Record<string, { value: string; label: string; color?: string }[]> = {};
@@ -373,6 +423,7 @@ export default function CustomViewPage() {
         sortColumn={sortColumn}
         sortOrder={sortOrder}
         onSort={handleSort}
+        onColumnsReorder={isOwner ? handleColumnsReorder : undefined}
       />
 
       {/* Footer with pagination */}
