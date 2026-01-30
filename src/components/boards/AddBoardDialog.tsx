@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Loader2, ChevronLeft, ChevronRight, Check, Info } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Loader2, ChevronLeft, ChevronRight, Check, Info, ChevronsUpDown } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -22,6 +22,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +42,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useMondayBoards } from "@/hooks/useMondayBoards";
 import { useBoardConfigs } from "@/hooks/useBoardConfigs";
 import { useOrganizationMembers } from "@/hooks/useOrganizationMembers";
+import { useMondayUsers } from "@/hooks/useMondayUsers";
+import { cn } from "@/lib/utils";
 import type { MondayBoard, MondayColumn, OrganizationMember } from "@/types";
 
 interface AddBoardDialogProps {
@@ -43,6 +58,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
   const { boards, isLoading: boardsLoading, fetchBoards } = useMondayBoards();
   const { createConfig } = useBoardConfigs();
   const { members } = useOrganizationMembers();
+  const { users: mondayUsers, isLoading: usersLoading, fetchUsers } = useMondayUsers();
 
   // Step state
   const [step, setStep] = useState<Step>(1);
@@ -58,6 +74,15 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
 
   // Step 3: Member mappings
   const [memberMappings, setMemberMappings] = useState<Record<string, string>>({});
+  const [openPopovers, setOpenPopovers] = useState<Record<string, boolean>>({});
+
+  // Get the selected filter column to determine type
+  const selectedFilterColumn = useMemo(() => {
+    if (!selectedBoard || !filterColumnId || filterColumnId === 'none') return null;
+    return selectedBoard.columns.find((c) => c.id === filterColumnId) || null;
+  }, [selectedBoard, filterColumnId]);
+
+  const isPersonColumn = selectedFilterColumn?.type === 'people' || selectedFilterColumn?.type === 'person';
 
   // Fetch boards when dialog opens
   useEffect(() => {
@@ -76,6 +101,28 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     }
   }, [selectedBoardId, boards]);
 
+  // Fetch Monday users when entering step 3 with a person column
+  useEffect(() => {
+    if (step === 3 && isPersonColumn && mondayUsers.length === 0) {
+      fetchUsers();
+    }
+  }, [step, isPersonColumn, mondayUsers.length, fetchUsers]);
+
+  // Pre-fill member mappings with display names when entering step 3
+  useEffect(() => {
+    if (step === 3) {
+      const prefilled: Record<string, string> = {};
+      mappableMembers.forEach((member) => {
+        if (!memberMappings[member.id] && member.display_name) {
+          prefilled[member.id] = member.display_name;
+        }
+      });
+      if (Object.keys(prefilled).length > 0) {
+        setMemberMappings((prev) => ({ ...prefilled, ...prev }));
+      }
+    }
+  }, [step]);
+
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
@@ -85,6 +132,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
       setFilterColumnId("");
       setVisibleColumns([]);
       setMemberMappings({});
+      setOpenPopovers({});
     }
   }, [open]);
 
@@ -135,7 +183,15 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
   const canSubmit = !!selectedBoard;
 
   // Filter members to show (exclude owner for mapping since they have full access)
-  const mappableMembers = members.filter((m) => m.role !== "owner");
+  // Also deduplicate by member id
+  const mappableMembers = useMemo(() => {
+    const seen = new Set<string>();
+    return members.filter((m) => {
+      if (m.role === "owner" || seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+  }, [members]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -298,35 +354,107 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-sm text-muted-foreground">
-                      Enter the filter value each member should see. Leave blank to skip.
-                    </p>
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Info className="h-4 w-4 text-muted-foreground cursor-help flex-shrink-0" />
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-[280px]">
-                          <p>Enter the exact value that matches this member in the Filter Column. For example, if Filter Column is 'Assigned Agent' and the member's name in Monday.com is 'Priya Desai', enter 'Priya Desai' here.</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm text-muted-foreground">
+                        {isPersonColumn
+                          ? "Select which Monday.com user each member represents"
+                          : "Enter the exact text value to filter by for each member"}
+                      </p>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 text-muted-foreground cursor-help flex-shrink-0" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-[280px]">
+                            {isPersonColumn ? (
+                              <p>Choose the Monday.com user that corresponds to each team member. This determines which board items they can see based on the People column.</p>
+                            ) : (
+                              <p>Enter the exact value that matches this member in the Filter Column. For example, if the filter column value is 'Priya Desai', enter that exact text here.</p>
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    {isPersonColumn && usersLoading && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading Monday.com users...
+                      </div>
+                    )}
                   </div>
                   <ScrollArea className="h-[240px] rounded-md border p-3">
                     <div className="space-y-3">
                       {mappableMembers.map((member) => (
-                        <div key={member.id} className="space-y-1">
+                        <div key={member.id} className="space-y-1.5">
                           <Label className="text-sm font-normal">
                             {member.display_name || member.email}
                           </Label>
-                          <Input
-                            placeholder="Filter value (e.g., member's name)"
-                            value={memberMappings[member.id] || ""}
-                            onChange={(e) =>
-                              handleMemberMappingChange(member.id, e.target.value)
-                            }
-                          />
+                          {isPersonColumn ? (
+                            <Popover
+                              open={openPopovers[member.id] || false}
+                              onOpenChange={(isOpen) =>
+                                setOpenPopovers((prev) => ({ ...prev, [member.id]: isOpen }))
+                              }
+                            >
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  role="combobox"
+                                  className="w-full justify-between font-normal"
+                                  disabled={usersLoading}
+                                >
+                                  {memberMappings[member.id] || "Select Monday.com user..."}
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[300px] p-0" align="start">
+                                <Command>
+                                  <CommandInput placeholder="Search users..." />
+                                  <CommandList>
+                                    <CommandEmpty>No user found.</CommandEmpty>
+                                    <CommandGroup>
+                                      {mondayUsers.map((user) => (
+                                        <CommandItem
+                                          key={user.id}
+                                          value={`${user.name} ${user.email || ''}`}
+                                          onSelect={() => {
+                                            handleMemberMappingChange(member.id, user.name);
+                                            setOpenPopovers((prev) => ({ ...prev, [member.id]: false }));
+                                          }}
+                                        >
+                                          <Check
+                                            className={cn(
+                                              "mr-2 h-4 w-4",
+                                              memberMappings[member.id] === user.name
+                                                ? "opacity-100"
+                                                : "opacity-0"
+                                            )}
+                                          />
+                                          <div className="flex flex-col">
+                                            <span>{user.name}</span>
+                                            {user.email && (
+                                              <span className="text-xs text-muted-foreground">
+                                                {user.email}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </CommandItem>
+                                      ))}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                          ) : (
+                            <Input
+                              placeholder="Enter exact filter value..."
+                              value={memberMappings[member.id] || ""}
+                              onChange={(e) =>
+                                handleMemberMappingChange(member.id, e.target.value)
+                              }
+                            />
+                          )}
                         </div>
                       ))}
                     </div>
