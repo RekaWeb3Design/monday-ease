@@ -183,8 +183,40 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Step 6: Fetch data from Monday.com ────────────────────────
-    const selectedColumns: ViewColumn[] = view.selected_columns || [];
-    const settings: ViewSettings = view.settings || {};
+    // Parse selected_columns - handle both string and array formats
+    let selectedColumns: ViewColumn[] = [];
+    if (typeof view.selected_columns === 'string') {
+      try {
+        selectedColumns = JSON.parse(view.selected_columns);
+      } catch {
+        console.error('[get-board-view-data] Failed to parse selected_columns');
+        selectedColumns = [];
+      }
+    } else {
+      selectedColumns = view.selected_columns || [];
+    }
+
+    // Parse settings - handle both string and object formats
+    const defaultSettings: ViewSettings = {
+      show_item_name: true,
+      row_height: 'default',
+      enable_search: true,
+      enable_filters: true,
+      default_sort_column: null,
+      default_sort_order: 'asc',
+    };
+
+    let settings: ViewSettings = { ...defaultSettings };
+    if (typeof view.settings === 'string') {
+      try {
+        settings = { ...defaultSettings, ...JSON.parse(view.settings) };
+      } catch {
+        console.error('[get-board-view-data] Failed to parse settings');
+      }
+    } else if (view.settings) {
+      settings = { ...defaultSettings, ...view.settings };
+    }
+
     const columnIds = selectedColumns.map(c => c.id);
 
     console.log("[get-board-view-data] Fetching board:", view.monday_board_id, "columns:", columnIds.length);
