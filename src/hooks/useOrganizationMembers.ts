@@ -15,7 +15,7 @@ interface UseOrganizationMembersReturn {
 }
 
 export function useOrganizationMembers(): UseOrganizationMembersReturn {
-  const { organization, user } = useAuth();
+  const { organization } = useAuth();
   const { toast } = useToast();
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -68,80 +68,53 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
 
   const inviteMember = useCallback(
     async (email: string, displayName: string) => {
-      if (!organization || !user) {
-        throw new Error("Organization or user not available");
+      if (!organization) {
+        throw new Error("Organization not available");
       }
 
-      // Step 1: Insert member record
-      const { error: insertError } = await supabase
-        .from("organization_members")
-        .insert({
-          organization_id: organization.id,
-          user_id: null,
-          email: email.toLowerCase().trim(),
-          display_name: displayName.trim(),
-          role: "member",
-          status: "pending",
-          invited_at: new Date().toISOString(),
-        });
-
-      if (insertError) {
-        toast({
-          title: "Error",
-          description: insertError.message || "Failed to invite member.",
-          variant: "destructive",
-        });
-        throw insertError;
-      }
-
-      // Step 2: Get inviter's name from profile
-      const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("full_name")
-        .eq("id", user.id)
-        .single();
-
-      const inviterName = profile?.full_name || user.email?.split("@")[0] || "A team member";
-
-      // Step 3: Send invite email via edge function
       try {
-        const { data: emailResult, error: emailError } = await supabase.functions.invoke(
-          "send-invite-email",
+        const { data, error: invokeError } = await supabase.functions.invoke(
+          "invite-member",
           {
             body: {
               email: email.toLowerCase().trim(),
               displayName: displayName.trim(),
-              organizationName: organization.name,
-              inviterName,
+              organizationId: organization.id,
             },
           }
         );
 
-        if (emailError) {
-          console.error("Email send error:", emailError);
+        if (invokeError) {
+          console.error("Invite function error:", invokeError);
           toast({
-            title: "Member Added",
-            description: `${displayName} was added but the invitation email could not be sent. They can still sign up manually.`,
-            variant: "default",
+            title: "Error",
+            description: invokeError.message || "Failed to invite member.",
+            variant: "destructive",
           });
-        } else {
-          toast({
-            title: "Invitation Sent",
-            description: `${displayName} has been invited to join your organization.`,
-          });
+          throw invokeError;
         }
-      } catch (emailErr) {
-        console.error("Email send exception:", emailErr);
-        toast({
-          title: "Member Added",
-          description: `${displayName} was added but the invitation email could not be sent.`,
-          variant: "default",
-        });
-      }
 
-      await fetchMembers();
+        if (!data?.success) {
+          toast({
+            title: "Error",
+            description: data?.error || "Failed to invite member.",
+            variant: "destructive",
+          });
+          throw new Error(data?.error || "Invite failed");
+        }
+
+        toast({
+          title: "Invitation Sent",
+          description: `${displayName} has been invited to join your organization.`,
+        });
+
+        await fetchMembers();
+      } catch (err) {
+        console.error("Invite member exception:", err);
+        throw err;
+      }
     },
-    [organization, user, toast, fetchMembers]
+    [organization, toast, fetchMembers]
   );
 
   const updateMember = useCallback(
