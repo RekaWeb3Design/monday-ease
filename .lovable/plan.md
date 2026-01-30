@@ -1,55 +1,37 @@
 
 
-## Workflow Templates UI Implementation
+## Add Member Self-Registration Flow
 
 ### Overview
-Create a Templates page to display workflow templates and allow users to execute them, plus an Execution History page to track past executions.
+Extend the Auth page to allow users to choose between creating their own organization (Owner) or requesting to join an existing one (Member with pending status).
 
 ---
 
 ### Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                       Templates Page (/templates)                   │
-├─────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ Header: "Workflow Templates"                                 │   │
-│  │ Description: "Automate your Monday.com workflows"            │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐     │
-│  │  TemplateCard   │  │  TemplateCard   │  │  TemplateCard   │     │
-│  │  - Icon         │  │  - Icon         │  │  - Icon         │     │
-│  │  - Name         │  │  - Name         │  │  - Name         │     │
-│  │  - Description  │  │  - Description  │  │  - Description  │     │
-│  │  - Category     │  │  - Category     │  │  - Category     │     │
-│  │  [Premium]      │  │  [Run]          │  │  [Run]          │     │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘     │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │   ExecuteTemplateDialog (when Run clicked)                   │   │
-│  │   - Template name                                            │   │
-│  │   - Board selection (from Monday.com boards)                 │   │
-│  │   - Task name input                                          │   │
-│  │   - Execute button                                           │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────┐
-│                    Execution History (/activity)                    │
-├─────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ Header: "Execution History"                                  │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ Table:                                                       │   │
-│  │  Template Name  |  Status  |  Started At  |  Duration       │   │
-│  │  Create Task    |  [done]  |  2 min ago   |  1.2s           │   │
-│  │  Sync Board     |  [fail]  |  5 min ago   |  0.8s           │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
+                      Auth Page (/auth)
+                           │
+                    ┌──────┴──────┐
+                    │  Sign Up    │
+                    └──────┬──────┘
+                           │
+          ┌────────────────┼────────────────┐
+          │                                 │
+    "Create my org"                   "Join existing"
+     (Owner flow)                    (Member flow)
+          │                                 │
+          ▼                                 ▼
+    Onboarding page              Organization selector
+    (create org)                         │
+          │                              ▼
+          │                    Insert pending member
+          │                              │
+          │                              ▼
+          │                    Pending Approval page
+          │                              │
+          ▼                              ▼
+       Dashboard                   Wait for owner
 ```
 
 ---
@@ -58,484 +40,416 @@ Create a Templates page to display workflow templates and allow users to execute
 
 | File | Purpose |
 |------|---------|
-| `src/pages/Templates.tsx` | Main templates page with grid |
-| `src/pages/ExecutionHistory.tsx` | Execution history page |
-| `src/hooks/useWorkflowTemplates.ts` | Fetch active templates from DB |
-| `src/hooks/useWorkflowExecutions.ts` | Fetch/create executions |
-| `src/components/templates/TemplateCard.tsx` | Card for each template |
-| `src/components/templates/ExecuteTemplateDialog.tsx` | Run template dialog |
+| `src/pages/PendingApproval.tsx` | Simple page for pending members |
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/types/index.ts` | Add WorkflowTemplate and WorkflowExecution types |
-| `src/App.tsx` | Add routes for `/templates` and `/activity` |
+| `src/pages/Auth.tsx` | Add registration type toggle and org selector |
+| `src/App.tsx` | Add route for `/pending-approval` |
+| `src/contexts/AuthContext.tsx` | Handle pending member redirection |
+
+### Database Changes
+
+| Type | Description |
+|------|-------------|
+| RLS Policy | Add policy for users to insert their own membership request |
 
 ---
 
 ### Implementation Details
 
-#### 1. Types (`src/types/index.ts`)
+#### 1. Database: RLS Policy for Self-Registration
 
-Add two new interfaces for workflow functionality:
+Add a new RLS policy to allow authenticated users to insert their own pending membership:
 
-```typescript
-// Workflow template from database
-export interface WorkflowTemplate {
-  id: string;
-  name: string;
-  description: string | null;
-  category: string;
-  icon: string;
-  n8n_webhook_url: string;
-  input_schema: Record<string, any>;
-  is_active: boolean;
-  is_premium: boolean;
-  execution_count: number;
-  created_at: string;
-}
-
-// Workflow execution record
-export interface WorkflowExecution {
-  id: string;
-  template_id: string | null;
-  organization_id: string;
-  user_id: string | null;
-  status: 'pending' | 'running' | 'success' | 'failed';
-  input_params: Record<string, any>;
-  output_result: Record<string, any> | null;
-  error_message: string | null;
-  started_at: string;
-  completed_at: string | null;
-  execution_time_ms: number | null;
-  created_at: string;
-  workflow_templates?: WorkflowTemplate;
-}
+```sql
+CREATE POLICY "Users can request to join orgs"
+ON organization_members
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  auth.uid() = user_id 
+  AND role = 'member' 
+  AND status = 'pending'
+);
 ```
 
-#### 2. useWorkflowTemplates Hook (`src/hooks/useWorkflowTemplates.ts`)
+This ensures users can only:
+- Insert records for themselves (user_id = auth.uid())
+- Request as a 'member' role (not admin or owner)
+- Start with 'pending' status
 
-Hook to fetch active templates from the `workflow_templates` table:
+#### 2. Auth Page Updates (`src/pages/Auth.tsx`)
+
+Add new state for registration type:
 
 ```typescript
-export function useWorkflowTemplates() {
-  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchTemplates = useCallback(async () => {
-    // Query workflow_templates where is_active = true
-    // Order by execution_count desc (popular first)
-    // Handle errors with toast
-  }, []);
-
-  useEffect(() => {
-    fetchTemplates();
-  }, [fetchTemplates]);
-
-  return { templates, isLoading, error, refetch: fetchTemplates };
-}
+// New state
+const [registrationType, setRegistrationType] = useState<'owner' | 'member'>('owner');
+const [selectedOrgId, setSelectedOrgId] = useState<string>("");
+const [organizations, setOrganizations] = useState<{id: string; name: string}[]>([]);
+const [orgsLoading, setOrgsLoading] = useState(false);
 ```
 
-#### 3. useWorkflowExecutions Hook (`src/hooks/useWorkflowExecutions.ts`)
-
-Hook to fetch and create execution records:
+Add organization fetching when member type is selected:
 
 ```typescript
-export function useWorkflowExecutions() {
-  const { organization } = useAuth();
-  const [executions, setExecutions] = useState<WorkflowExecution[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const fetchExecutions = useCallback(async () => {
-    // Query workflow_executions for current organization
-    // Join with workflow_templates to get template name
-    // Order by started_at desc (newest first)
-    // Limit to 50 recent executions
-  }, [organization]);
-
-  const createExecution = useCallback(async (
-    templateId: string,
-    inputParams: Record<string, any>
-  ): Promise<boolean> => {
-    // Insert new execution with status 'pending'
-    // Show toast: "Workflow queued"
-    // Return success/failure
-  }, [organization]);
-
-  return { executions, isLoading, createExecution, refetch: fetchExecutions };
-}
-```
-
-#### 4. TemplateCard Component (`src/components/templates/TemplateCard.tsx`)
-
-Card displaying a single template:
-
-```typescript
-interface TemplateCardProps {
-  template: WorkflowTemplate;
-  onRun: (template: WorkflowTemplate) => void;
-}
-
-export function TemplateCard({ template, onRun }: TemplateCardProps) {
-  // Dynamic icon from lucide-react using template.icon field
-  // Map common icon names: "zap", "calendar", "mail", etc.
-  
-  return (
-    <Card className="hover:shadow-md transition-shadow">
-      <CardHeader>
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <IconComponent className="h-8 w-8 text-primary" />
-            <div>
-              <CardTitle>{template.name}</CardTitle>
-              {template.is_premium && (
-                <Badge className="bg-[#ffcd03] text-black">Premium</Badge>
-              )}
-            </div>
-          </div>
-        </div>
-        <CardDescription>{template.description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-center justify-between">
-          <div className="flex gap-2">
-            <Badge variant="outline">{template.category}</Badge>
-            <span className="text-xs text-muted-foreground">
-              {template.execution_count} runs
-            </span>
-          </div>
-          <Button onClick={() => onRun(template)}>
-            Run
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-```
-
-#### 5. ExecuteTemplateDialog Component (`src/components/templates/ExecuteTemplateDialog.tsx`)
-
-Dialog for running a template:
-
-```typescript
-interface ExecuteTemplateDialogProps {
-  template: WorkflowTemplate | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSuccess: () => void;
-}
-
-export function ExecuteTemplateDialog({
-  template,
-  open,
-  onOpenChange,
-  onSuccess,
-}: ExecuteTemplateDialogProps) {
-  const { boards, fetchBoards } = useMondayBoards();
-  const { createExecution } = useWorkflowExecutions();
-  
-  const [selectedBoardId, setSelectedBoardId] = useState("");
-  const [taskName, setTaskName] = useState("");
-  const [isExecuting, setIsExecuting] = useState(false);
-
-  // Fetch boards when dialog opens
-  // Handle execute: create execution record with input_params
-  // Show toast on success/failure
-  // Reset form and close dialog
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Run: {template?.name}</DialogTitle>
-          <DialogDescription>
-            Configure the workflow parameters
-          </DialogDescription>
-        </DialogHeader>
-        
-        {/* Board selection dropdown */}
-        <Select value={selectedBoardId} onValueChange={setSelectedBoardId}>
-          <SelectTrigger>
-            <SelectValue placeholder="Select a board..." />
-          </SelectTrigger>
-          <SelectContent>
-            {boards.map((board) => (
-              <SelectItem key={board.id} value={board.id}>
-                {board.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        
-        {/* Task name input */}
-        <Input
-          placeholder="Task name (optional)"
-          value={taskName}
-          onChange={(e) => setTaskName(e.target.value)}
-        />
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleExecute} disabled={!selectedBoardId || isExecuting}>
-            {isExecuting ? <Loader2 /> : "Execute"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-```
-
-#### 6. Templates Page (`src/pages/Templates.tsx`)
-
-Main templates page:
-
-```typescript
-export default function Templates() {
-  const { templates, isLoading } = useWorkflowTemplates();
-  const [selectedTemplate, setSelectedTemplate] = useState<WorkflowTemplate | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-
-  const handleRun = (template: WorkflowTemplate) => {
-    setSelectedTemplate(template);
-    setDialogOpen(true);
-  };
-
-  if (isLoading) {
-    return <LoadingState />;
+// Fetch organizations when registrationType changes to 'member'
+useEffect(() => {
+  if (registrationType === 'member') {
+    setOrgsLoading(true);
+    supabase
+      .from('organizations')
+      .select('id, name')
+      .order('name')
+      .then(({ data }) => {
+        setOrganizations(data || []);
+        setOrgsLoading(false);
+      });
   }
+}, [registrationType]);
+```
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Workflow Templates</h1>
-        <p className="text-muted-foreground">
-          Automate your Monday.com workflows with pre-built templates
-        </p>
-      </div>
+Add UI components after confirm password field (only on signup tab):
 
-      {/* Empty state or grid */}
-      {templates.length === 0 ? (
-        <EmptyState
-          icon={Zap}
-          title="No templates available"
-          description="Check back soon for new automation templates."
-        />
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {templates.map((template) => (
-            <TemplateCard
-              key={template.id}
-              template={template}
-              onRun={handleRun}
-            />
-          ))}
-        </div>
-      )}
-
-      <ExecuteTemplateDialog
-        template={selectedTemplate}
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onSuccess={() => setDialogOpen(false)}
-      />
+```tsx
+{/* Registration Type Selector */}
+<div className="space-y-3 border-t pt-4">
+  <Label>Account Type</Label>
+  <RadioGroup
+    value={registrationType}
+    onValueChange={(val) => setRegistrationType(val as 'owner' | 'member')}
+    className="space-y-2"
+  >
+    <div className="flex items-center space-x-3">
+      <RadioGroupItem value="owner" id="owner" />
+      <Label htmlFor="owner" className="font-normal cursor-pointer">
+        Create my organization
+      </Label>
     </div>
-  );
-}
-```
-
-#### 7. ExecutionHistory Page (`src/pages/ExecutionHistory.tsx`)
-
-Execution history page with table:
-
-```typescript
-export default function ExecutionHistory() {
-  const { executions, isLoading, refetch } = useWorkflowExecutions();
-
-  // Status badge helper
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "success":
-        return <Badge className="bg-[#01cb72]">Success</Badge>;
-      case "failed":
-        return <Badge className="bg-[#fb275d]">Failed</Badge>;
-      case "running":
-        return <Badge className="bg-blue-500">Running</Badge>;
-      case "pending":
-        return <Badge className="bg-[#ffcd03] text-black">Pending</Badge>;
-    }
-  };
-
-  // Duration formatter
-  const formatDuration = (ms: number | null) => {
-    if (!ms) return "-";
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Execution History</h1>
-          <p className="text-muted-foreground">
-            Track your workflow execution results
-          </p>
-        </div>
-        <Button variant="outline" onClick={refetch}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
-      </div>
-
-      {isLoading ? (
-        <LoadingState />
-      ) : executions.length === 0 ? (
-        <EmptyState
-          icon={Activity}
-          title="No executions yet"
-          description="Run a workflow template to see execution history here."
-        />
-      ) : (
-        <Card>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Template</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Started</TableHead>
-                <TableHead>Duration</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {executions.map((exec) => (
-                <TableRow key={exec.id}>
-                  <TableCell>
-                    {exec.workflow_templates?.name || "Unknown"}
-                  </TableCell>
-                  <TableCell>{getStatusBadge(exec.status)}</TableCell>
-                  <TableCell>
-                    {formatDistanceToNow(new Date(exec.started_at))} ago
-                  </TableCell>
-                  <TableCell>
-                    {formatDuration(exec.execution_time_ms)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
-      )}
+    <div className="flex items-center space-x-3">
+      <RadioGroupItem value="member" id="member" />
+      <Label htmlFor="member" className="font-normal cursor-pointer">
+        Join existing organization
+      </Label>
     </div>
-  );
-}
+  </RadioGroup>
+</div>
+
+{/* Organization Selector (only when member selected) */}
+{registrationType === 'member' && (
+  <div className="space-y-2">
+    <Label htmlFor="org-select">Select Organization</Label>
+    <Select value={selectedOrgId} onValueChange={setSelectedOrgId}>
+      <SelectTrigger id="org-select">
+        <SelectValue placeholder="Select organization to join..." />
+      </SelectTrigger>
+      <SelectContent>
+        {organizations.map((org) => (
+          <SelectItem key={org.id} value={org.id}>
+            {org.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  </div>
+)}
 ```
 
-#### 8. App.tsx Routes Update
-
-Add routes for Templates and ExecutionHistory:
+Modify handleSignUp to handle member registration:
 
 ```typescript
-// Add imports
-import Templates from "./pages/Templates";
-import ExecutionHistory from "./pages/ExecutionHistory";
-
-// Add routes (before catch-all):
-<Route
-  path="/templates"
-  element={
-    <ProtectedRoute>
-      <RequireOrganization>
-        <AppLayout pageTitle="Templates">
-          <Templates />
-        </AppLayout>
-      </RequireOrganization>
-    </ProtectedRoute>
+const handleSignUp = async (e: React.FormEvent) => {
+  // ... existing validation ...
+  
+  // Additional validation for member type
+  if (registrationType === 'member' && !selectedOrgId) {
+    setSignUpError("Please select an organization to join");
+    return;
   }
-/>
-<Route
-  path="/activity"
-  element={
-    <ProtectedRoute>
-      <RequireOrganization>
-        <AppLayout pageTitle="Activity">
-          <ExecutionHistory />
-        </AppLayout>
-      </RequireOrganization>
-    </ProtectedRoute>
+
+  setSignUpLoading(true);
+  try {
+    // Sign up the user
+    const { data, error } = await supabase.auth.signUp({
+      email: signUpEmail,
+      password: signUpPassword,
+      options: {
+        emailRedirectTo: `${window.location.origin}/`,
+        data: {
+          full_name: signUpFullName,
+          registration_type: registrationType,
+          requested_org_id: registrationType === 'member' ? selectedOrgId : null,
+        },
+      },
+    });
+
+    if (error) throw error;
+    
+    // For member registration, we'll create the pending membership after email confirmation
+    // Store the intent in user metadata so we can process it on first login
+    
+    setSignUpSuccess(true);
+    // ... clear form ...
+  } catch (error: any) {
+    setSignUpError(error.message || "Failed to sign up");
+  } finally {
+    setSignUpLoading(false);
   }
-/>
-```
-
----
-
-### Dynamic Icon Mapping
-
-For `TemplateCard`, map the icon string to lucide-react components:
-
-```typescript
-import * as Icons from "lucide-react";
-
-const iconMap: Record<string, React.ComponentType<any>> = {
-  zap: Icons.Zap,
-  calendar: Icons.Calendar,
-  mail: Icons.Mail,
-  clipboard: Icons.Clipboard,
-  "file-text": Icons.FileText,
-  users: Icons.Users,
-  bell: Icons.Bell,
-  check: Icons.Check,
-  send: Icons.Send,
-  settings: Icons.Settings,
 };
+```
 
-function getIcon(iconName: string): React.ComponentType<any> {
-  return iconMap[iconName.toLowerCase()] || Icons.Zap;
+#### 3. AuthContext Updates (`src/contexts/AuthContext.tsx`)
+
+Handle pending membership creation on first login for member registration:
+
+```typescript
+// In the auth state change handler, after fetching profile:
+if (newSession?.user) {
+  setTimeout(async () => {
+    const userProfile = await fetchProfile(newSession.user.id);
+    setProfile(userProfile);
+    
+    // Check if this is a new member registration
+    const metadata = newSession.user.user_metadata;
+    if (metadata?.registration_type === 'member' && metadata?.requested_org_id) {
+      // Check if membership already exists
+      const { data: existingMembership } = await supabase
+        .from('organization_members')
+        .select('id')
+        .eq('user_id', newSession.user.id)
+        .eq('organization_id', metadata.requested_org_id)
+        .maybeSingle();
+      
+      if (!existingMembership) {
+        // Create pending membership
+        await supabase.from('organization_members').insert({
+          organization_id: metadata.requested_org_id,
+          user_id: newSession.user.id,
+          email: newSession.user.email!,
+          display_name: metadata.full_name || null,
+          role: 'member',
+          status: 'pending',
+        });
+      }
+    }
+    
+    await fetchOrganization(newSession.user.id);
+    // ... rest of logic ...
+  }, 0);
+}
+```
+
+Update fetchOrganization to detect pending status:
+
+```typescript
+const fetchOrganization = useCallback(async (userId: string) => {
+  // ... existing owner check ...
+  
+  // Check for active membership
+  const { data: activeMembership } = await supabase
+    .from("organization_members")
+    .select("*, organizations(*)")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (activeMembership && activeMembership.organizations) {
+    setOrganization(activeMembership.organizations as unknown as Organization);
+    setMemberRole(activeMembership.role as MemberRole);
+    return;
+  }
+
+  // Check for pending membership
+  const { data: pendingMembership } = await supabase
+    .from("organization_members")
+    .select("*, organizations(*)")
+    .eq("user_id", userId)
+    .eq("status", "pending")
+    .maybeSingle();
+
+  if (pendingMembership) {
+    // Set a special state to indicate pending
+    setPendingOrganization(pendingMembership.organizations as unknown as Organization);
+    setOrganization(null);
+    setMemberRole(null);
+    return;
+  }
+  
+  // No org at all
+  setOrganization(null);
+  setMemberRole(null);
+}, []);
+```
+
+Add new state and context value:
+
+```typescript
+const [pendingOrganization, setPendingOrganization] = useState<Organization | null>(null);
+
+// Add to context value:
+pendingOrganization,
+```
+
+Update types in `src/types/index.ts`:
+
+```typescript
+export interface AuthContextType {
+  // ... existing ...
+  pendingOrganization: Organization | null;
+}
+```
+
+#### 4. PendingApproval Page (`src/pages/PendingApproval.tsx`)
+
+Create a simple page for pending members:
+
+```typescript
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Clock, LogOut } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import mondayeaseLogo from "@/assets/mondayease_logo.png";
+
+export default function PendingApproval() {
+  const navigate = useNavigate();
+  const { pendingOrganization, signOut, loading } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/auth");
+  };
+
+  if (loading) {
+    return <LoadingSpinner />;
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <div className="w-full max-w-[400px] space-y-6">
+        {/* Logo */}
+        <div className="flex flex-col items-center space-y-2">
+          <img src={mondayeaseLogo} alt="MondayEase" className="h-auto w-[180px]" />
+        </div>
+
+        <Card>
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-[#ffcd03]/20">
+              <Clock className="h-6 w-6 text-[#ffcd03]" />
+            </div>
+            <CardTitle className="text-xl">Pending Approval</CardTitle>
+            <CardDescription>
+              Your request to join{" "}
+              <span className="font-medium text-foreground">
+                {pendingOrganization?.name || "the organization"}
+              </span>{" "}
+              is pending.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground text-center">
+              The organization owner will review your request. You'll gain access once approved.
+            </p>
+            <Button variant="outline" className="w-full" onClick={handleSignOut}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign Out
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+```
+
+#### 5. App.tsx Route Updates
+
+Add the pending approval route:
+
+```typescript
+import PendingApproval from "./pages/PendingApproval";
+
+// Add route after /onboarding:
+<Route
+  path="/pending-approval"
+  element={
+    <ProtectedRoute>
+      <PendingApproval />
+    </ProtectedRoute>
+  }
+/>
+```
+
+#### 6. RequireOrganization Update
+
+Update to redirect pending members:
+
+```typescript
+export function RequireOrganization({ children }: RequireOrganizationProps) {
+  const { organization, pendingOrganization, loading } = useAuth();
+
+  if (loading) {
+    return <LoadingSpinner />;
+  }
+
+  // Redirect pending members to pending approval page
+  if (pendingOrganization && !organization) {
+    return <Navigate to="/pending-approval" replace />;
+  }
+
+  // Redirect users without org to onboarding
+  if (!organization) {
+    return <Navigate to="/onboarding" replace />;
+  }
+
+  return <>{children}</>;
 }
 ```
 
 ---
 
-### Status Badge Colors
+### New Imports for Auth.tsx
 
-Consistent with project branding:
-
-| Status | Color | Tailwind Class |
-|--------|-------|----------------|
-| Success | Green (#01cb72) | `bg-[#01cb72] text-white` |
-| Failed | Red (#fb275d) | `bg-[#fb275d] text-white` |
-| Running | Blue | `bg-blue-500 text-white` |
-| Pending | Yellow (#ffcd03) | `bg-[#ffcd03] text-black` |
-
----
-
-### Database Integration
-
-The implementation uses existing tables:
-
-**workflow_templates table:**
-- RLS allows SELECT for active templates (is_active = true)
-- No INSERT/UPDATE/DELETE for regular users
-
-**workflow_executions table:**
-- RLS allows INSERT for org members
-- RLS allows SELECT for org members
-- Service role can UPDATE (for status changes)
+```typescript
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+```
 
 ---
 
-### Key Implementation Notes
+### Flow Summary
 
-1. **No n8n calls yet** - Only create execution records with status 'pending'
-2. **Follow existing patterns** - Use same structure as BoardConfig, useBoardConfigs
-3. **Empty states** - Friendly messages with relevant icons
-4. **Loading states** - Use Loader2 spinner consistently
-5. **Toast notifications** - "Workflow queued" on successful execution creation
-6. **Date formatting** - Use date-fns formatDistanceToNow for relative times
+1. **User visits /auth and selects Sign Up tab**
+2. **Fills in name, email, password, confirm password**
+3. **Chooses account type:**
+   - Owner (default): Shows email confirmation, then goes to /onboarding
+   - Member: Shows organization dropdown
+4. **If Member, selects organization from dropdown**
+5. **Submits form - user metadata stores registration intent**
+6. **User confirms email and logs in**
+7. **AuthContext detects member registration metadata:**
+   - Creates pending membership in organization_members
+   - Sets pendingOrganization state
+8. **RequireOrganization redirects to /pending-approval**
+9. **User sees pending message with org name and logout button**
+10. **Owner approves via Organization page (existing functionality)**
+11. **Member logs in again and is now redirected to /member dashboard**
+
+---
+
+### Edge Cases Handled
+
+- No organizations exist: Dropdown shows empty, user must create org instead
+- User refreshes on pending page: State restored from database
+- Pending member tries to access dashboard: Redirected to pending page
+- User with metadata logs in multiple times: Only creates membership once
 
