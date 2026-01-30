@@ -1,10 +1,46 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decodeBase64 } from "https://deno.land/std@0.220.1/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+// Decrypt access token using AES-GCM
+async function decryptToken(encryptedData: string, encryptionKey: string): Promise<string> {
+  try {
+    // The encrypted data format: base64(iv + ciphertext)
+    const combined = decodeBase64(encryptedData);
+    
+    // IV is first 12 bytes, rest is ciphertext
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    
+    // Import the key
+    const keyData = new TextEncoder().encode(encryptionKey.padEnd(32, '0').slice(0, 32));
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
+    
+    // Decrypt
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      cryptoKey,
+      ciphertext
+    );
+    
+    return new TextDecoder().decode(decrypted);
+  } catch (error) {
+    console.error("Decryption error:", error);
+    // If decryption fails, assume the token is not encrypted and return as-is
+    return encryptedData;
+  }
+}
 
 interface MondayUser {
   id: string;
@@ -96,8 +132,17 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const mondayToken = integration.access_token;
-    console.log("Got Monday token, fetching users");
+    // Decrypt the token if encryption key is available
+    const encryptionKey = Deno.env.get("ENCRYPTION_KEY");
+    let mondayToken = integration.access_token;
+    
+    if (encryptionKey) {
+      console.log("Attempting to decrypt token...");
+      mondayToken = await decryptToken(integration.access_token, encryptionKey);
+      console.log("Decrypted token length:", mondayToken?.length || 0);
+    } else {
+      console.log("No ENCRYPTION_KEY, using token as-is, length:", mondayToken?.length || 0);
+    }
 
     // Fetch users from Monday.com
     const query = `
@@ -110,11 +155,14 @@ Deno.serve(async (req: Request) => {
       }
     `;
 
+    // CRITICAL: Monday.com API requires "Bearer " prefix
+    const mondayAuthHeader = mondayToken.startsWith("Bearer ") ? mondayToken : `Bearer ${mondayToken}`;
+
     const mondayResponse = await fetch("https://api.monday.com/v2", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: mondayToken,
+        Authorization: mondayAuthHeader,
       },
       body: JSON.stringify({ query }),
     });
