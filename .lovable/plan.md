@@ -1,102 +1,106 @@
 
-
-# Fix Email Delivery Issues
+# Fix Member Invitation Flow
 
 ## Problem Analysis
 
-After investigation, I found two separate email systems:
+Currently, the `inviteMember` function in `useOrganizationMembers.ts`:
+1. Inserts a record into `organization_members` with `status: pending`
+2. Calls `send-invite-email` to send a custom email with a signup link
 
-1. **Invite Emails** (Edge Function) - Actually working correctly based on logs showing `Email sent successfully` with Resend IDs
-2. **Registration Confirmation Emails** (Supabase Auth SMTP) - Using Supabase's built-in email system, which may have configuration issues
-
----
+However, this approach requires the invited user to go through the full signup flow. The requested approach using `auth.admin.inviteUserByEmail()` is better because:
+- It creates the user account in Supabase Auth directly
+- Sends an email with a secure magic link
+- The user just needs to click and set their password
 
 ## Solution Overview
 
-Replace Supabase Auth's built-in email with custom branded emails sent through Resend for both registration confirmations and invites. This gives you full control over email delivery and branding.
-
----
+Create a new Edge Function `invite-member` that handles the complete invitation flow using Supabase Admin API.
 
 ## Implementation Steps
 
-### Step 1: Create Custom Email Auth Hook Edge Function
+### Step 1: Create `invite-member` Edge Function
 
-Create a new edge function `auth-email-hook` that intercepts Supabase Auth email events and sends branded emails via Resend.
+**Location**: `supabase/functions/invite-member/index.ts`
 
-**Location**: `supabase/functions/auth-email-hook/index.ts`
+The function will:
+- Receive `{ email, displayName, organizationId }` from frontend
+- Use service role key to call `supabase.auth.admin.inviteUserByEmail()`
+- Insert/update the `organization_members` record with `status: pending`
+- The invite email will be sent through the existing `auth-email-hook` (branded Resend emails)
 
-This function will:
-- Listen for auth email events (signup confirmation, password reset, magic link)
-- Generate branded HTML emails with MondayEase logo and styling
-- Send via Resend API using verified `mondayease.com` domain
+```text
+Request Body:
+{
+  email: string,
+  displayName: string, 
+  organizationId: string
+}
 
-### Step 2: Update send-invite-email Edge Function
+Response:
+{
+  success: boolean,
+  memberId?: string,
+  error?: string
+}
+```
 
-Ensure the invite email function is using the latest branded template with proper error handling.
+### Step 2: Update `supabase/config.toml`
 
-### Step 3: Configure Supabase Auth Hook Secret
+Add the new function configuration:
+```toml
+[functions.invite-member]
+enabled = true
+verify_jwt = false
+```
 
-You'll need to create a secret called `SEND_EMAIL_HOOK_SECRET` in Supabase that the auth system uses to sign webhook payloads.
+### Step 3: Update `useOrganizationMembers.ts`
 
-### Step 4: Enable Auth Hook in Supabase Dashboard
+Simplify the `inviteMember` function to:
+1. Call the new `invite-member` edge function
+2. Handle success/error responses
+3. Refresh the members list
 
-After deployment, configure the Auth Hook in Supabase Dashboard:
-- Go to Authentication > Hooks
-- Enable "Send Email" hook
-- Point to your `auth-email-hook` edge function
+The frontend no longer needs to:
+- Manually insert into `organization_members`
+- Call `send-invite-email` separately
 
----
+## Files to Modify
+
+| File | Action |
+|------|--------|
+| `supabase/functions/invite-member/index.ts` | Create new |
+| `supabase/config.toml` | Add function config |
+| `src/hooks/useOrganizationMembers.ts` | Simplify inviteMember |
 
 ## Technical Details
 
-### New Files to Create
+### Edge Function Flow
 
 ```text
-supabase/functions/auth-email-hook/index.ts
+Frontend                    invite-member                 Supabase Auth
+    |                             |                             |
+    |-- POST {email, name, org} ->|                             |
+    |                             |-- inviteUserByEmail() ----->|
+    |                             |                             |
+    |                             |<-- user created ------------|
+    |                             |                             |
+    |                             |-- INSERT organization_members
+    |                             |                             |
+    |<-- { success: true } -------|                             |
+    |                             |                             |
+    |                       auth-email-hook <-- email event ----|
+    |                             |                             |
+    |                       (branded email sent via Resend)     |
 ```
 
-### Files to Update
+### Key Implementation Points
 
-```text
-supabase/config.toml - Add auth-email-hook function
-```
+1. **Service Role Client**: Use `SUPABASE_SERVICE_ROLE_KEY` to create an admin client
+2. **Redirect URL**: Set to `https://ai-sprint.mondayease.com/auth` for password setup
+3. **User Metadata**: Pass `full_name` in user metadata for personalized emails
+4. **Duplicate Handling**: Check if email already exists in organization before inviting
+5. **Error Handling**: Return clear error messages for duplicate emails, invalid data, etc.
 
-### Edge Function Structure
+## Cleanup
 
-The auth-email-hook will handle three email types:
-- **signup** - Email confirmation for new registrations
-- **magiclink** - Passwordless login links  
-- **recovery** - Password reset emails
-
-Each email type will use the same branded template with the MondayEase logo, green (#01cb72) accent colors, and consistent styling.
-
-### Email Template Features
-
-- MondayEase logo at top (hosted in email-assets bucket)
-- Card-based layout matching invite email
-- Green CTA buttons
-- Responsive design for mobile
-- Clear fallback URL links
-- Professional footer
-
----
-
-## Verification Steps
-
-After implementation:
-1. Test new user registration - should receive branded confirmation email
-2. Test password reset - should receive branded reset email
-3. Test member invite - should receive branded invite email
-4. Check Resend dashboard for delivery status
-
----
-
-## Required Manual Step
-
-After I deploy the edge function, you'll need to:
-1. Go to Supabase Dashboard > Authentication > Hooks
-2. Enable "Send Email" hook
-3. Enter the hook URL and secret
-
-I'll provide exact instructions after deployment.
-
+The `send-invite-email` edge function can be kept for potential future use (resending invites) or removed later. For now, it won't be called by the new flow.
