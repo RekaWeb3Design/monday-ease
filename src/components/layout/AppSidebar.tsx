@@ -43,6 +43,7 @@ const ownerNavItems: NavItem[] = [
 // Member nav items (limited access)
 const memberNavItems: NavItem[] = [
   { title: "My Tasks", url: "/member", icon: ClipboardList },
+  { title: "Activity", url: "/activity", icon: Activity },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 

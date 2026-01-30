@@ -185,4 +185,15 @@ export interface WorkflowExecution {
   execution_time_ms: number | null;
   created_at: string | null;
   workflow_templates?: WorkflowTemplate;
+  user_email?: string; // Joined from user_profiles
+}
+
+// Edge Function execution result
+export interface ExecutionResult {
+  success: boolean;
+  execution_id: string;
+  status: string;
+  result?: Record<string, any>;
+  execution_time_ms: number;
+  error?: string;
 }
