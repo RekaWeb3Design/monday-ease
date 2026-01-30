@@ -270,6 +270,111 @@ export type Database = {
         }
         Relationships: []
       }
+      workflow_executions: {
+        Row: {
+          completed_at: string | null
+          created_at: string | null
+          error_message: string | null
+          execution_time_ms: number | null
+          id: string
+          input_params: Json | null
+          organization_id: string | null
+          output_result: Json | null
+          started_at: string | null
+          status: string
+          template_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          execution_time_ms?: number | null
+          id?: string
+          input_params?: Json | null
+          organization_id?: string | null
+          output_result?: Json | null
+          started_at?: string | null
+          status?: string
+          template_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          execution_time_ms?: number | null
+          id?: string
+          input_params?: Json | null
+          organization_id?: string | null
+          output_result?: Json | null
+          started_at?: string | null
+          status?: string
+          template_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_executions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_executions_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_templates: {
+        Row: {
+          category: string
+          created_at: string | null
+          description: string | null
+          execution_count: number | null
+          icon: string | null
+          id: string
+          input_schema: Json
+          is_active: boolean | null
+          is_premium: boolean | null
+          n8n_webhook_url: string
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          category?: string
+          created_at?: string | null
+          description?: string | null
+          execution_count?: number | null
+          icon?: string | null
+          id?: string
+          input_schema?: Json
+          is_active?: boolean | null
+          is_premium?: boolean | null
+          n8n_webhook_url: string
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          description?: string | null
+          execution_count?: number | null
+          icon?: string | null
+          id?: string
+          input_schema?: Json
+          is_active?: boolean | null
+          is_premium?: boolean | null
+          n8n_webhook_url?: string
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
