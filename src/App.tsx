@@ -15,6 +15,8 @@ import MemberDashboard from "./pages/MemberDashboard";
 import Organization from "./pages/Organization";
 import Integrations from "./pages/Integrations";
 import BoardConfig from "./pages/BoardConfig";
+import Templates from "./pages/Templates";
+import ExecutionHistory from "./pages/ExecutionHistory";
 import OAuthCallback from "./pages/OAuthCallback";
 import NotFound from "./pages/NotFound";
 
@@ -90,6 +92,30 @@ const App = () => (
                   <RequireOrganization>
                     <AppLayout pageTitle="Board Configuration">
                       <BoardConfig />
+                    </AppLayout>
+                  </RequireOrganization>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/templates"
+              element={
+                <ProtectedRoute>
+                  <RequireOrganization>
+                    <AppLayout pageTitle="Templates">
+                      <Templates />
+                    </AppLayout>
+                  </RequireOrganization>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/activity"
+              element={
+                <ProtectedRoute>
+                  <RequireOrganization>
+                    <AppLayout pageTitle="Activity">
+                      <ExecutionHistory />
                     </AppLayout>
                   </RequireOrganization>
                 </ProtectedRoute>

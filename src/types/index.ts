@@ -153,3 +153,35 @@ export interface MondayColumnValue {
   text: string | null;
   value: any;
 }
+
+// Workflow template from database (workflow_templates table)
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  icon: string | null;
+  n8n_webhook_url: string;
+  input_schema: Record<string, any>;
+  is_active: boolean | null;
+  is_premium: boolean | null;
+  execution_count: number | null;
+  created_at: string | null;
+}
+
+// Workflow execution record from database (workflow_executions table)
+export interface WorkflowExecution {
+  id: string;
+  template_id: string | null;
+  organization_id: string | null;
+  user_id: string | null;
+  status: 'pending' | 'running' | 'success' | 'failed';
+  input_params: Record<string, any> | null;
+  output_result: Record<string, any> | null;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  execution_time_ms: number | null;
+  created_at: string | null;
+  workflow_templates?: WorkflowTemplate;
+}
