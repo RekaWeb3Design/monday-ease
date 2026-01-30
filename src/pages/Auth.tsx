@@ -14,10 +14,23 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { CheckCircle, Eye, EyeOff } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { CheckCircle, Eye, EyeOff, Building2, UserPlus } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
+
+interface Organization {
+  id: string;
+  name: string;
+}
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -41,6 +54,12 @@ export default function Auth() {
   const [showSignUpPassword, setShowSignUpPassword] = useState(false);
   const [showSignUpConfirmPassword, setShowSignUpConfirmPassword] = useState(false);
 
+  // Registration type state (NEW)
+  const [registrationType, setRegistrationType] = useState<"owner" | "member">("owner");
+  const [selectedOrgId, setSelectedOrgId] = useState<string>("");
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [orgsLoading, setOrgsLoading] = useState(false);
+
   // Forgot password state
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
   const [forgotPasswordError, setForgotPasswordError] = useState("");
@@ -54,6 +73,31 @@ export default function Auth() {
       navigate("/", { replace: true });
     }
   }, [user, loading, navigate]);
+
+  // Fetch organizations when member type is selected
+  useEffect(() => {
+    async function fetchOrganizations() {
+      if (registrationType !== "member") return;
+      
+      setOrgsLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from("organizations")
+          .select("id, name")
+          .order("name");
+
+        if (error) throw error;
+        setOrganizations(data || []);
+      } catch (error) {
+        console.error("Error fetching organizations:", error);
+        setOrganizations([]);
+      } finally {
+        setOrgsLoading(false);
+      }
+    }
+
+    fetchOrganizations();
+  }, [registrationType]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,6 +129,11 @@ export default function Auth() {
       return;
     }
 
+    if (registrationType === "member" && !selectedOrgId) {
+      setSignUpError("Please select an organization to join");
+      return;
+    }
+
     if (signUpPassword !== signUpConfirmPassword) {
       setSignUpError("Passwords do not match");
       return;
@@ -97,13 +146,59 @@ export default function Auth() {
 
     setSignUpLoading(true);
     try {
-      await signUp(signUpEmail, signUpPassword, signUpFullName);
+      // Store the registration intent in user metadata for member registrations
+      const metadata: Record<string, any> = {
+        full_name: signUpFullName,
+      };
+      
+      if (registrationType === "member") {
+        metadata.registration_type = "member";
+        metadata.requested_org_id = selectedOrgId;
+      } else {
+        metadata.registration_type = "owner";
+      }
+
+      const redirectUrl = `${window.location.origin}/`;
+
+      const { data, error } = await supabase.auth.signUp({
+        email: signUpEmail,
+        password: signUpPassword,
+        options: {
+          emailRedirectTo: redirectUrl,
+          data: metadata,
+        },
+      });
+
+      if (error) throw error;
+
+      // If member registration and user was created (email confirmation might be disabled)
+      if (registrationType === "member" && data.user) {
+        // Create pending membership record
+        const { error: memberError } = await supabase
+          .from("organization_members")
+          .insert({
+            organization_id: selectedOrgId,
+            user_id: data.user.id,
+            email: signUpEmail,
+            display_name: signUpFullName,
+            role: "member",
+            status: "pending",
+          });
+
+        if (memberError) {
+          console.error("Error creating membership:", memberError);
+          // Don't throw - the user account was created, they just need manual membership
+        }
+      }
+
       setSignUpSuccess(true);
       // Clear form
       setSignUpFullName("");
       setSignUpEmail("");
       setSignUpPassword("");
       setSignUpConfirmPassword("");
+      setSelectedOrgId("");
+      setRegistrationType("owner");
     } catch (error: any) {
       setSignUpError(error.message || "Failed to sign up. Please try again.");
     } finally {
@@ -277,7 +372,10 @@ export default function Auth() {
                   <Alert className="border-primary/50 bg-primary/10">
                     <CheckCircle className="h-4 w-4 text-primary" />
                     <AlertDescription className="text-foreground">
-                      Check your email to confirm your account before signing in.
+                      {registrationType === "member" 
+                        ? "Account created! Check your email to confirm, then wait for organization approval."
+                        : "Check your email to confirm your account before signing in."
+                      }
                     </AlertDescription>
                   </Alert>
                 ) : (
@@ -354,6 +452,67 @@ export default function Auth() {
                         </Button>
                       </div>
                     </div>
+
+                    {/* Registration Type Selector */}
+                    <div className="space-y-3 rounded-lg border p-4">
+                      <Label>I want to...</Label>
+                      <RadioGroup 
+                        value={registrationType} 
+                        onValueChange={(value) => setRegistrationType(value as "owner" | "member")}
+                        className="space-y-2"
+                      >
+                        <div className="flex items-center space-x-3 rounded-md border p-3 cursor-pointer hover:bg-muted/50 transition-colors">
+                          <RadioGroupItem value="owner" id="reg-owner" />
+                          <Label htmlFor="reg-owner" className="flex items-center gap-2 cursor-pointer flex-1">
+                            <Building2 className="h-4 w-4 text-primary" />
+                            <div>
+                              <p className="font-medium">Create my organization</p>
+                              <p className="text-xs text-muted-foreground">Set up a new workspace</p>
+                            </div>
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-3 rounded-md border p-3 cursor-pointer hover:bg-muted/50 transition-colors">
+                          <RadioGroupItem value="member" id="reg-member" />
+                          <Label htmlFor="reg-member" className="flex items-center gap-2 cursor-pointer flex-1">
+                            <UserPlus className="h-4 w-4 text-primary" />
+                            <div>
+                              <p className="font-medium">Join existing organization</p>
+                              <p className="text-xs text-muted-foreground">Request to join a team</p>
+                            </div>
+                          </Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+
+                    {/* Organization Selector (only for member registration) */}
+                    {registrationType === "member" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="org-select">Organization</Label>
+                        <Select 
+                          value={selectedOrgId} 
+                          onValueChange={setSelectedOrgId}
+                          disabled={orgsLoading}
+                        >
+                          <SelectTrigger id="org-select">
+                            <SelectValue placeholder={orgsLoading ? "Loading organizations..." : "Select organization to join..."} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {organizations.length === 0 ? (
+                              <div className="p-2 text-sm text-muted-foreground text-center">
+                                No organizations available
+                              </div>
+                            ) : (
+                              organizations.map((org) => (
+                                <SelectItem key={org.id} value={org.id}>
+                                  {org.name}
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
                     {signUpError && (
                       <p className="text-sm text-destructive">{signUpError}</p>
                     )}

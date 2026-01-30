@@ -18,6 +18,7 @@ import BoardConfig from "./pages/BoardConfig";
 import Templates from "./pages/Templates";
 import ExecutionHistory from "./pages/ExecutionHistory";
 import OAuthCallback from "./pages/OAuthCallback";
+import PendingApproval from "./pages/PendingApproval";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -122,6 +123,14 @@ const App = () => (
               }
             />
             <Route path="/oauth-callback" element={<OAuthCallback />} />
+            <Route
+              path="/pending-approval"
+              element={
+                <ProtectedRoute>
+                  <PendingApproval />
+                </ProtectedRoute>
+              }
+            />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
