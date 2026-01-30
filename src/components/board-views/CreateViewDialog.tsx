@@ -26,6 +26,23 @@ import { IconPicker } from "./IconPicker";
 import { useMondayBoards } from "@/hooks/useMondayBoards";
 import type { ViewColumn, ViewSettings, MondayColumn, CustomBoardView } from "@/types";
 import { cn } from "@/lib/utils";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface CreateViewDialogProps {
   open: boolean;
@@ -50,6 +67,93 @@ const DEFAULT_SETTINGS: ViewSettings = {
   default_sort_column: null,
   default_sort_order: 'asc',
 };
+
+// Sortable column item component for drag-and-drop
+function SortableColumnItem({
+  column,
+  isSelected,
+  selectedCol,
+  onToggle,
+  onWidthChange,
+}: {
+  column: MondayColumn;
+  isSelected: boolean;
+  selectedCol?: ViewColumn;
+  onToggle: (checked: boolean) => void;
+  onWidthChange: (width: number) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ 
+    id: column.id, 
+    disabled: !isSelected
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex items-center gap-3 p-2 rounded-md transition-colors",
+        isSelected && "bg-primary/5",
+        isDragging && "opacity-50 border border-primary shadow-sm"
+      )}
+    >
+      {/* Drag handle - only visible when selected */}
+      {isSelected && (
+        <div
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+        >
+          <GripVertical className="h-4 w-4" />
+        </div>
+      )}
+      
+      <Checkbox
+        id={column.id}
+        checked={isSelected}
+        onCheckedChange={onToggle}
+      />
+      
+      <div className="flex-1">
+        <label
+          htmlFor={column.id}
+          className="text-sm font-medium cursor-pointer"
+        >
+          {column.title}
+        </label>
+        <p className="text-xs text-muted-foreground">
+          Type: {column.type}
+        </p>
+      </div>
+      
+      {isSelected && (
+        <div className="flex items-center gap-2">
+          <Label className="text-xs">Width:</Label>
+          <Input
+            type="number"
+            value={selectedCol?.width || 150}
+            onChange={(e) => onWidthChange(parseInt(e.target.value) || 150)}
+            className="w-16 h-7 text-xs"
+            min={50}
+            max={500}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function CreateViewDialog({
   open,
@@ -77,6 +181,46 @@ export function CreateViewDialog({
   const [settings, setSettings] = useState<ViewSettings>(DEFAULT_SETTINGS);
 
   const { boards, isLoading: boardsLoading, fetchBoards } = useMondayBoards();
+
+  // Drag-and-drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Prevent accidental drags
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag end event
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (over && active.id !== over.id) {
+      setSelectedColumns((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id);
+        const newIndex = items.findIndex((i) => i.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+
+  // Get columns in display order: selected columns first (in their order), then unselected
+  const sortedBoardColumns = [...boardColumns].sort((a, b) => {
+    const aIndex = selectedColumns.findIndex(c => c.id === a.id);
+    const bIndex = selectedColumns.findIndex(c => c.id === b.id);
+    
+    // Both selected: maintain selectedColumns order
+    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+    // Only a selected: a comes first
+    if (aIndex !== -1) return -1;
+    // Only b selected: b comes first
+    if (bIndex !== -1) return 1;
+    // Neither selected: maintain original order
+    return 0;
+  });
 
   // Reset form when dialog opens/closes
   useEffect(() => {
@@ -250,66 +394,42 @@ export function CreateViewDialog({
             <div className="space-y-2">
               <Label>Select Columns to Display *</Label>
               <p className="text-sm text-muted-foreground">
-                Choose which columns to show in this view
+                Choose columns and drag to reorder selected ones
               </p>
             </div>
             <ScrollArea className="h-[300px] rounded-md border p-3">
-              <div className="space-y-2">
-                {boardColumns.map((column) => {
-                  const isSelected = selectedColumns.some((c) => c.id === column.id);
-                  const selectedCol = selectedColumns.find((c) => c.id === column.id);
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={selectedColumns.map(c => c.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-2">
+                    {sortedBoardColumns.map((column) => {
+                      const isSelected = selectedColumns.some(c => c.id === column.id);
+                      const selectedCol = selectedColumns.find(c => c.id === column.id);
 
-                  return (
-                    <div
-                      key={column.id}
-                      className={cn(
-                        "flex items-center gap-3 p-2 rounded-md transition-colors",
-                        isSelected && "bg-primary/5"
-                      )}
-                    >
-                      <Checkbox
-                        id={column.id}
-                        checked={isSelected}
-                        onCheckedChange={(checked) =>
-                          handleColumnToggle(column, checked as boolean)
-                        }
-                      />
-                      <div className="flex-1">
-                        <label
-                          htmlFor={column.id}
-                          className="text-sm font-medium cursor-pointer"
-                        >
-                          {column.title}
-                        </label>
-                        <p className="text-xs text-muted-foreground">
-                          Type: {column.type}
-                        </p>
-                      </div>
-                      {isSelected && (
-                        <div className="flex items-center gap-2">
-                          <Label className="text-xs">Width:</Label>
-                          <Input
-                            type="number"
-                            value={selectedCol?.width || 150}
-                            onChange={(e) =>
-                              handleColumnWidthChange(
-                                column.id,
-                                parseInt(e.target.value) || 150
-                              )
-                            }
-                            className="w-16 h-7 text-xs"
-                            min={50}
-                            max={500}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                      return (
+                        <SortableColumnItem
+                          key={column.id}
+                          column={column}
+                          isSelected={isSelected}
+                          selectedCol={selectedCol}
+                          onToggle={(checked) => handleColumnToggle(column, checked as boolean)}
+                          onWidthChange={(width) => handleColumnWidthChange(column.id, width)}
+                        />
+                      );
+                    })}
+                  </div>
+                </SortableContext>
+              </DndContext>
             </ScrollArea>
             <p className="text-sm text-muted-foreground">
               {selectedColumns.length} column{selectedColumns.length !== 1 ? "s" : ""} selected
+              {selectedColumns.length > 1 && " • Drag to reorder"}
             </p>
           </div>
         );
