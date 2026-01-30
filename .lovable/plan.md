@@ -1,270 +1,338 @@
 
 
-## Cél
+# Custom Board Views Implementation Plan
 
-A board konfiguráció dialógusokban a felhasználó dropdown ne csak Monday.com felhasználókat mutasson, hanem a saját szervezetünkben lévő tagokat is. Ezzel lehetővé válik, hogy a board-okat a szervezet tagjaival párosítsuk, nem csak Monday.com felhasználókkal.
+## Overview
 
----
-
-## Jelenlegi állapot
-
-### Hogyan működik most:
-1. **AddBoardDialog (Step 3)**: Monday.com users dropdown a `useMondayUsers` hook-ból
-2. **EditBoardAccessDialog**: Szintén Monday.com users dropdown
-3. **Filter matching (get-member-tasks)**: A `filter_value` mezőt hasonlítja a Monday.com column értékhez
-
-### Probléma:
-- Ha a szervezeti tag neve nem egyezik pontosan a Monday.com user nevével, a szűrés nem működik
-- Nincs lehetőség saját szervezeti tagok kiválasztására
+A new feature for organization owners to create custom "Board Views" - dynamic data tables that display selected columns from Monday.com boards, accessible to all organization members as sub-pages in the dashboard.
 
 ---
 
-## Megoldás
+## Database Changes
 
-### Változtatás koncepciója
+### New Table: `custom_board_views`
 
-A "person" típusú oszlopoknál a dropdown **két szekciót** fog mutatni:
+```sql
+CREATE TABLE public.custom_board_views (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  
+  -- View details
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  description TEXT,
+  icon TEXT DEFAULT 'table',
+  
+  -- Monday board reference
+  monday_board_id TEXT NOT NULL,
+  monday_board_name TEXT,
+  
+  -- Column configuration
+  selected_columns JSONB NOT NULL DEFAULT '[]'::jsonb,
+  
+  -- Display settings
+  settings JSONB DEFAULT '{
+    "show_item_name": true,
+    "row_height": "default",
+    "enable_search": true,
+    "enable_filters": true,
+    "default_sort_column": null,
+    "default_sort_order": "asc"
+  }'::jsonb,
+  
+  -- Status
+  is_active BOOLEAN DEFAULT TRUE,
+  display_order INTEGER DEFAULT 0,
+  
+  -- Timestamps
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  
+  UNIQUE(organization_id, slug)
+);
+
+-- Indexes
+CREATE INDEX idx_cbv_org ON public.custom_board_views(organization_id);
+CREATE INDEX idx_cbv_board ON public.custom_board_views(monday_board_id);
+CREATE INDEX idx_cbv_active ON public.custom_board_views(organization_id, is_active);
+
+-- RLS Policies
+ALTER TABLE public.custom_board_views ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Org owners can manage views"
+  ON public.custom_board_views FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM organizations o
+      WHERE o.id = custom_board_views.organization_id
+      AND o.owner_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Org members can view"
+  ON public.custom_board_views FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM organization_members om
+      WHERE om.organization_id = custom_board_views.organization_id
+      AND om.user_id = auth.uid()
+      AND om.status = 'active'
+    )
+  );
+```
+
+---
+
+## File Structure
 
 ```text
-+----------------------------------+
-| Search users...                  |
-+----------------------------------+
-| 📁 Organization Members          |
-|   ☐ Réka Vig (reka@company.hu)  |
-|   ☐ John Doe (john@company.hu)  |
-+----------------------------------+
-| 📁 Monday.com Users              |
-|   ☐ Réka Víg (reka@monday.com)  |
-|   ☐ John Doe (john@monday.com)  |
-+----------------------------------+
-```
-
-### Érintett fájlok
-
-| Fájl | Változtatás |
-|------|-------------|
-| `src/components/boards/AddBoardDialog.tsx` | Kettős dropdown (org members + Monday users) |
-| `src/components/organization/EditBoardAccessDialog.tsx` | Kettős dropdown (org members + Monday users) |
-| `src/hooks/useOrganizationMembers.ts` | Már elérhető, nincs változás |
-| `src/hooks/useMondayUsers.ts` | Már elérhető, nincs változás |
-
----
-
-## Részletes implementáció
-
-### 1. AddBoardDialog.tsx frissítése
-
-**Step 3 - Member mapping szekció:**
-
-```tsx
-// Jelenlegi: csak Monday users
-{isPersonColumn ? (
-  <Popover>
-    {mondayUsers.map(user => ...)}
-  </Popover>
-) : (
-  <Input />
-)}
-
-// Új: Organization members + Monday users
-{isPersonColumn ? (
-  <Popover>
-    <Command>
-      <CommandInput placeholder="Search..." />
-      <CommandList>
-        <CommandGroup heading="Organization Members">
-          {mappableMembers.map(member => (
-            <CommandItem 
-              key={`org-${member.id}`}
-              value={`${member.display_name} ${member.email}`}
-              onSelect={() => handleMemberMappingChange(memberId, member.display_name)}
-            >
-              {member.display_name}
-              <span className="text-muted-foreground">{member.email}</span>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-        <CommandGroup heading="Monday.com Users">
-          {mondayUsers.map(user => (
-            <CommandItem 
-              key={`monday-${user.id}`}
-              value={`${user.name} ${user.email}`}
-              onSelect={() => handleMemberMappingChange(memberId, user.name)}
-            >
-              {user.name}
-              <span className="text-muted-foreground">{user.email}</span>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      </CommandList>
-    </Command>
-  </Popover>
-) : (
-  <Input />
-)}
-```
-
-### 2. EditBoardAccessDialog.tsx frissítése
-
-**Filter value input szekció:**
-
-Ugyanazt a logikát alkalmazzuk:
-- Person column esetén: két csoportos Combobox
-- Egyéb esetben: szöveges input
-
-```tsx
-// A renderFilterInput függvényben:
-if (isPerson) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline">
-          {access.filterValue || "Select a person..."}
-          <ChevronsUpDown />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent>
-        <Command>
-          <CommandInput placeholder="Search..." />
-          <CommandList>
-            {/* Clear option */}
-            <CommandItem onSelect={() => handleFilterValueChange(boardConfigId, "")}>
-              None (remove access)
-            </CommandItem>
-            
-            {/* Organization members */}
-            <CommandGroup heading="Organization Members">
-              {members.filter(m => m.role !== 'owner').map(member => (
-                <CommandItem 
-                  key={`org-${member.id}`}
-                  onSelect={() => handleFilterValueChange(boardConfigId, member.display_name)}
-                >
-                  <Check className={cn(...)} />
-                  {member.display_name}
-                  <span className="text-muted-foreground">{member.email}</span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-            
-            {/* Monday.com users */}
-            <CommandGroup heading="Monday.com Users">
-              {mondayUsers.map(user => (
-                <CommandItem 
-                  key={`monday-${user.id}`}
-                  onSelect={() => handleFilterValueChange(boardConfigId, user.name)}
-                >
-                  <Check className={cn(...)} />
-                  {user.name}
-                  <span className="text-muted-foreground">{user.email}</span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
-}
-```
-
-### 3. EditBoardAccessDialog - Hook integráció
-
-A komponensbe be kell húzni a `useOrganizationMembers` hook-ot:
-
-```tsx
-import { useOrganizationMembers } from "@/hooks/useOrganizationMembers";
-
-export function EditBoardAccessDialog({ ... }) {
-  // Meglévő hooks
-  const { users: mondayUsers, isLoading: usersLoading, fetchUsers } = useMondayUsers();
-  
-  // Új hook hozzáadása
-  const { members, isLoading: membersLoading } = useOrganizationMembers();
-  
-  // Non-owner members szűrése
-  const nonOwnerMembers = useMemo(() => 
-    members.filter(m => m.role !== 'owner'), 
-    [members]
-  );
-  
-  // Loading state frissítése
-  const isLoadingUsers = usersLoading || membersLoading;
-  
-  // ...
-}
+src/
+├── pages/
+│   ├── BoardViews.tsx              # Management page (/board-views)
+│   └── CustomViewPage.tsx          # Dynamic view page (/board-views/:slug)
+├── components/
+│   └── board-views/
+│       ├── CreateViewDialog.tsx    # Multi-step wizard
+│       ├── ViewCard.tsx            # Card for management grid
+│       ├── ViewDataTable.tsx       # Data table component
+│       ├── ColumnCell.tsx          # Render cells by column type
+│       └── IconPicker.tsx          # Lucide icon selector
+├── hooks/
+│   └── useCustomBoardViews.ts      # CRUD hook for views
+│   └── useBoardViewData.ts         # Fetch data from edge function
+├── types/
+│   └── index.ts                    # Add new types
+supabase/
+└── functions/
+    └── get-board-view-data/
+        └── index.ts                # Edge function for data fetching
 ```
 
 ---
 
-## UI/UX megfontolások
+## Implementation Details
 
-### Dropdown felépítése
+### 1. Types (`src/types/index.ts`)
 
-```text
-┌─────────────────────────────────────┐
-│ 🔍 Search users...                  │
-├─────────────────────────────────────┤
-│ ✗ None (remove access)             │
-├─────────────────────────────────────┤
-│ Organization Members                │
-│   ○ Réka Vig                       │
-│     reka@company.hu                 │
-│   ○ John Doe                       │
-│     john@company.hu                 │
-├─────────────────────────────────────┤
-│ Monday.com Users                    │
-│   ○ Réka Víg                       │
-│     reka@monday.com                 │
-│   ○ Jane Smith                     │
-│     jane@monday.com                 │
-└─────────────────────────────────────┘
-```
-
-### Loading állapotok
-
-- Ha bármelyik lista töltődik: spinner megjelenítése
-- Üres állapot kezelése mindkét csoportnál
-
-### Szűrő logika
-
-- A keresés mindkét csoportban működik (név és email alapján)
-- Case-insensitive keresés
-
----
-
-## Miért működik a szűrés?
-
-A `get-member-tasks` edge function a `filter_value` mezőt hasonlítja össze a Monday.com oszlop értékével. A matching logika (`matchesFilter` függvény) case-insensitive és partial match-et is támogat:
+Add new interfaces:
 
 ```typescript
-// Bármilyen nevet tárolunk a filter_value-ban (org member vagy Monday user)
-// A Monday.com API text mezője lesz összehasonlítva vele
-// Pl: filter_value = "Réka Vig" vagy "Réka Víg"
-// Monday text = "Réka Víg"
-// → partial match működik
+// Custom board view configuration
+export interface CustomBoardView {
+  id: string;
+  organization_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  icon: string;
+  monday_board_id: string;
+  monday_board_name: string | null;
+  selected_columns: ViewColumn[];
+  settings: ViewSettings;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ViewColumn {
+  id: string;
+  title: string;
+  type: string;
+  width?: number;
+}
+
+export interface ViewSettings {
+  show_item_name: boolean;
+  row_height: 'compact' | 'default' | 'comfortable';
+  enable_search: boolean;
+  enable_filters: boolean;
+  default_sort_column: string | null;
+  default_sort_order: 'asc' | 'desc';
+}
+```
+
+### 2. Hook: `useCustomBoardViews.ts`
+
+CRUD operations for custom views:
+- `fetchViews()` - Load all views for organization
+- `createView(data)` - Create new view
+- `updateView(id, data)` - Update existing view
+- `deleteView(id)` - Delete view
+- Auto-generate slug from view name
+
+### 3. Hook: `useBoardViewData.ts`
+
+Fetch real-time data from edge function:
+- Parameters: `viewId`, `page`, `search`, `sortColumn`, `sortOrder`
+- Returns: `items`, `totalCount`, `isLoading`, `error`
+- Triggers refetch when params change
+
+### 4. Edge Function: `get-board-view-data`
+
+```typescript
+// Endpoint: GET /get-board-view-data?view_id=uuid&page=1&limit=50&search=keyword&sort=column_id&order=asc
+
+// Flow:
+// 1. Validate JWT and get user
+// 2. Fetch view config from database
+// 3. Verify user has access (org member or owner)
+// 4. Get organization owner's Monday token
+// 5. Decrypt token and call Monday.com API
+// 6. Filter columns based on view configuration
+// 7. Apply search, sorting, pagination
+// 8. Return formatted response
+
+// Response:
+{
+  view: { name, icon, settings, columns },
+  items: [{ id, name, column_values: {...} }],
+  total_count: number,
+  page: number,
+  limit: number
+}
+```
+
+### 5. Management Page: `BoardViews.tsx`
+
+Route: `/board-views` (owner only)
+
+Layout:
+- Header with "Custom Board Views" title and "Create View" button
+- Grid of `ViewCard` components
+- Empty state with CTA to create first view
+
+### 6. Create View Dialog: `CreateViewDialog.tsx`
+
+Multi-step wizard (4 steps):
+
+**Step 1 - Basic Info:**
+- Name input (required)
+- Description textarea (optional)
+- IconPicker component
+
+**Step 2 - Select Board:**
+- Use existing `useMondayBoards` hook
+- Board dropdown with name and type
+- Show column count after selection
+
+**Step 3 - Configure Columns:**
+- Checkbox list of available columns
+- Column type icon next to each
+- Width input for selected columns
+- Reorder with drag-and-drop (optional)
+
+**Step 4 - Display Settings:**
+- Toggle: Show item name column
+- Select: Row height (compact/default/comfortable)
+- Toggle: Enable search bar
+- Toggle: Enable column filters
+- Default sort column/order selects
+
+### 7. View Card: `ViewCard.tsx`
+
+Card display for each view:
+- Icon + View name
+- Source board badge
+- Column count
+- Active/Inactive toggle
+- Actions: Edit, Preview, Delete
+
+### 8. Custom View Page: `CustomViewPage.tsx`
+
+Route: `/board-views/:slug`
+
+Sections:
+- **Header**: Back button, view name + icon, board badge, refresh button
+- **Filter bar**: Search input, column-specific filters (if enabled)
+- **Data table**: Using `ViewDataTable` component
+- **Footer**: Item count, pagination controls
+
+### 9. Data Table: `ViewDataTable.tsx`
+
+Features:
+- Column headers from view config
+- Sortable columns (click to toggle)
+- Resizable column widths
+- `ColumnCell` renders value by type
+- Loading skeleton state
+- Empty state handling
+
+### 10. Column Cell: `ColumnCell.tsx`
+
+Render cell based on column type:
+- **Status**: Colored badge with Monday.com colors
+- **Date**: Formatted date, overdue in red
+- **Person**: Avatar + name
+- **Text**: Truncated with tooltip
+- **Number**: Right-aligned
+
+### 11. Icon Picker: `IconPicker.tsx`
+
+Grid of commonly used Lucide icons:
+- Table, LayoutGrid, List, Calendar, Users, FileText, etc.
+- Searchable
+- Click to select
+
+### 12. Sidebar Updates: `AppSidebar.tsx`
+
+Add "Board Views" section for owners:
+- Parent item: "Board Views" with LayoutGrid icon
+- Fetch active views using `useCustomBoardViews`
+- Display up to 5 views as sub-items
+- "See all" link if more than 5
+
+---
+
+## Routing Updates (`App.tsx`)
+
+Add new routes:
+
+```tsx
+<Route path="/board-views" element={...}>
+  <BoardViews />
+</Route>
+
+<Route path="/board-views/:slug" element={...}>
+  <CustomViewPage />
+</Route>
 ```
 
 ---
 
-## Implementációs lépések
+## Monday.com Status Colors
 
-1. **EditBoardAccessDialog.tsx**
-   - `useOrganizationMembers` hook import
-   - Non-owner members szűrése
-   - Dropdown két csoporttal (org members + Monday users)
-   - Loading state kezelése
-
-2. **AddBoardDialog.tsx**
-   - Step 3 dropdown frissítése két csoporttal
-   - A `mappableMembers` már elérhető (saját szervezeti tagok)
-   - Monday users hozzáadása második csoportként
+```typescript
+const statusColors: Record<string, string> = {
+  'Done': '#00CA72',
+  'Working on it': '#FDAB3D',
+  'Stuck': '#E2445C',
+  'Pending': '#579BFC',
+  'Not Started': '#C4C4C4',
+};
+```
 
 ---
 
-## Technikai megjegyzések
+## Implementation Order
 
-- A `filter_value` mező továbbra is a **kiválasztott név** lesz (string)
-- Nincs szükség adatbázis módosításra
-- A matching logika változatlan marad a `get-member-tasks` edge function-ben
-- A CommandGroup komponens biztosítja a csoportosított megjelenítést
+1. **Database** - Run migration to create table with RLS
+2. **Types** - Add interfaces to types file
+3. **Edge Function** - Create `get-board-view-data` function
+4. **Hooks** - Implement `useCustomBoardViews` and `useBoardViewData`
+5. **Components** - Build UI components (ViewCard, CreateViewDialog, etc.)
+6. **Pages** - Create BoardViews and CustomViewPage
+7. **Routing** - Add routes to App.tsx
+8. **Sidebar** - Update navigation with dynamic views
+
+---
+
+## Technical Notes
+
+- Reuse existing patterns from `useBoardConfigs` hook
+- Follow `AddBoardDialog` wizard pattern for CreateViewDialog
+- Use owner's Monday.com token for API calls (same as `get-member-tasks`)
+- Slug generation: lowercase, replace spaces with hyphens, remove special chars
+- View data is NOT cached - always fetches real-time from Monday.com
+- Pagination limit: 50 items per page
 
