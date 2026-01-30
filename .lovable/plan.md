@@ -1,338 +1,118 @@
 
 
-# Custom Board Views Implementation Plan
+# Fix Custom Board Views - Data Corruption Resolution
 
-## Overview
+## Confirmed Issue
 
-A new feature for organization owners to create custom "Board Views" - dynamic data tables that display selected columns from Monday.com boards, accessible to all organization members as sub-pages in the dashboard.
+The database check confirms the bug:
+
+| Field | Expected Type | Actual Type |
+|-------|---------------|-------------|
+| `selected_columns` | array | string |
+| `settings` | object | string |
+
+This causes `selectedColumns.map is not a function` in the edge function because it receives a string instead of an array.
 
 ---
 
-## Database Changes
+## Fix Strategy
 
-### New Table: `custom_board_views`
+### Step 1: Fix Corrupted Database Records
+
+Run a SQL migration to convert the double-encoded strings back to proper JSONB:
 
 ```sql
-CREATE TABLE public.custom_board_views (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
-  
-  -- View details
-  name TEXT NOT NULL,
-  slug TEXT NOT NULL,
-  description TEXT,
-  icon TEXT DEFAULT 'table',
-  
-  -- Monday board reference
-  monday_board_id TEXT NOT NULL,
-  monday_board_name TEXT,
-  
-  -- Column configuration
-  selected_columns JSONB NOT NULL DEFAULT '[]'::jsonb,
-  
-  -- Display settings
-  settings JSONB DEFAULT '{
-    "show_item_name": true,
-    "row_height": "default",
-    "enable_search": true,
-    "enable_filters": true,
-    "default_sort_column": null,
-    "default_sort_order": "asc"
-  }'::jsonb,
-  
-  -- Status
-  is_active BOOLEAN DEFAULT TRUE,
-  display_order INTEGER DEFAULT 0,
-  
-  -- Timestamps
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  UNIQUE(organization_id, slug)
-);
+-- Fix selected_columns stored as strings
+UPDATE public.custom_board_views 
+SET selected_columns = (selected_columns #>> '{}')::jsonb
+WHERE jsonb_typeof(selected_columns) = 'string';
 
--- Indexes
-CREATE INDEX idx_cbv_org ON public.custom_board_views(organization_id);
-CREATE INDEX idx_cbv_board ON public.custom_board_views(monday_board_id);
-CREATE INDEX idx_cbv_active ON public.custom_board_views(organization_id, is_active);
-
--- RLS Policies
-ALTER TABLE public.custom_board_views ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Org owners can manage views"
-  ON public.custom_board_views FOR ALL
-  USING (
-    EXISTS (
-      SELECT 1 FROM organizations o
-      WHERE o.id = custom_board_views.organization_id
-      AND o.owner_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Org members can view"
-  ON public.custom_board_views FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM organization_members om
-      WHERE om.organization_id = custom_board_views.organization_id
-      AND om.user_id = auth.uid()
-      AND om.status = 'active'
-    )
-  );
+-- Fix settings stored as strings
+UPDATE public.custom_board_views 
+SET settings = (settings #>> '{}')::jsonb
+WHERE jsonb_typeof(settings) = 'string';
 ```
 
----
+### Step 2: Fix the Hook to Prevent Future Corruption
 
-## File Structure
+**File:** `src/hooks/useCustomBoardViews.ts`
 
-```text
-src/
-├── pages/
-│   ├── BoardViews.tsx              # Management page (/board-views)
-│   └── CustomViewPage.tsx          # Dynamic view page (/board-views/:slug)
-├── components/
-│   └── board-views/
-│       ├── CreateViewDialog.tsx    # Multi-step wizard
-│       ├── ViewCard.tsx            # Card for management grid
-│       ├── ViewDataTable.tsx       # Data table component
-│       ├── ColumnCell.tsx          # Render cells by column type
-│       └── IconPicker.tsx          # Lucide icon selector
-├── hooks/
-│   └── useCustomBoardViews.ts      # CRUD hook for views
-│   └── useBoardViewData.ts         # Fetch data from edge function
-├── types/
-│   └── index.ts                    # Add new types
-supabase/
-└── functions/
-    └── get-board-view-data/
-        └── index.ts                # Edge function for data fetching
-```
-
----
-
-## Implementation Details
-
-### 1. Types (`src/types/index.ts`)
-
-Add new interfaces:
+Remove `JSON.stringify()` calls that cause double-encoding:
 
 ```typescript
-// Custom board view configuration
-export interface CustomBoardView {
-  id: string;
-  organization_id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  icon: string;
-  monday_board_id: string;
-  monday_board_name: string | null;
-  selected_columns: ViewColumn[];
-  settings: ViewSettings;
-  is_active: boolean;
-  display_order: number;
-  created_at: string;
-  updated_at: string;
-}
+// Line 126-127 in createView function
+// BEFORE:
+selected_columns: JSON.stringify(data.selected_columns),
+settings: JSON.stringify(data.settings),
 
-export interface ViewColumn {
-  id: string;
-  title: string;
-  type: string;
-  width?: number;
-}
-
-export interface ViewSettings {
-  show_item_name: boolean;
-  row_height: 'compact' | 'default' | 'comfortable';
-  enable_search: boolean;
-  enable_filters: boolean;
-  default_sort_column: string | null;
-  default_sort_order: 'asc' | 'desc';
-}
+// AFTER:
+selected_columns: data.selected_columns,
+settings: data.settings,
 ```
 
-### 2. Hook: `useCustomBoardViews.ts`
+### Step 3: Add Defensive Parsing in Edge Function
 
-CRUD operations for custom views:
-- `fetchViews()` - Load all views for organization
-- `createView(data)` - Create new view
-- `updateView(id, data)` - Update existing view
-- `deleteView(id)` - Delete view
-- Auto-generate slug from view name
+**File:** `supabase/functions/get-board-view-data/index.ts`
 
-### 3. Hook: `useBoardViewData.ts`
-
-Fetch real-time data from edge function:
-- Parameters: `viewId`, `page`, `search`, `sortColumn`, `sortOrder`
-- Returns: `items`, `totalCount`, `isLoading`, `error`
-- Triggers refetch when params change
-
-### 4. Edge Function: `get-board-view-data`
+Add type checking to handle both formats (for backward compatibility):
 
 ```typescript
-// Endpoint: GET /get-board-view-data?view_id=uuid&page=1&limit=50&search=keyword&sort=column_id&order=asc
-
-// Flow:
-// 1. Validate JWT and get user
-// 2. Fetch view config from database
-// 3. Verify user has access (org member or owner)
-// 4. Get organization owner's Monday token
-// 5. Decrypt token and call Monday.com API
-// 6. Filter columns based on view configuration
-// 7. Apply search, sorting, pagination
-// 8. Return formatted response
-
-// Response:
-{
-  view: { name, icon, settings, columns },
-  items: [{ id, name, column_values: {...} }],
-  total_count: number,
-  page: number,
-  limit: number
+// Parse selected_columns - handle both string and array
+let selectedColumns: ViewColumn[] = [];
+if (typeof view.selected_columns === 'string') {
+  try {
+    selectedColumns = JSON.parse(view.selected_columns);
+  } catch {
+    console.error('[get-board-view-data] Failed to parse selected_columns');
+    selectedColumns = [];
+  }
+} else {
+  selectedColumns = view.selected_columns || [];
 }
-```
 
-### 5. Management Page: `BoardViews.tsx`
-
-Route: `/board-views` (owner only)
-
-Layout:
-- Header with "Custom Board Views" title and "Create View" button
-- Grid of `ViewCard` components
-- Empty state with CTA to create first view
-
-### 6. Create View Dialog: `CreateViewDialog.tsx`
-
-Multi-step wizard (4 steps):
-
-**Step 1 - Basic Info:**
-- Name input (required)
-- Description textarea (optional)
-- IconPicker component
-
-**Step 2 - Select Board:**
-- Use existing `useMondayBoards` hook
-- Board dropdown with name and type
-- Show column count after selection
-
-**Step 3 - Configure Columns:**
-- Checkbox list of available columns
-- Column type icon next to each
-- Width input for selected columns
-- Reorder with drag-and-drop (optional)
-
-**Step 4 - Display Settings:**
-- Toggle: Show item name column
-- Select: Row height (compact/default/comfortable)
-- Toggle: Enable search bar
-- Toggle: Enable column filters
-- Default sort column/order selects
-
-### 7. View Card: `ViewCard.tsx`
-
-Card display for each view:
-- Icon + View name
-- Source board badge
-- Column count
-- Active/Inactive toggle
-- Actions: Edit, Preview, Delete
-
-### 8. Custom View Page: `CustomViewPage.tsx`
-
-Route: `/board-views/:slug`
-
-Sections:
-- **Header**: Back button, view name + icon, board badge, refresh button
-- **Filter bar**: Search input, column-specific filters (if enabled)
-- **Data table**: Using `ViewDataTable` component
-- **Footer**: Item count, pagination controls
-
-### 9. Data Table: `ViewDataTable.tsx`
-
-Features:
-- Column headers from view config
-- Sortable columns (click to toggle)
-- Resizable column widths
-- `ColumnCell` renders value by type
-- Loading skeleton state
-- Empty state handling
-
-### 10. Column Cell: `ColumnCell.tsx`
-
-Render cell based on column type:
-- **Status**: Colored badge with Monday.com colors
-- **Date**: Formatted date, overdue in red
-- **Person**: Avatar + name
-- **Text**: Truncated with tooltip
-- **Number**: Right-aligned
-
-### 11. Icon Picker: `IconPicker.tsx`
-
-Grid of commonly used Lucide icons:
-- Table, LayoutGrid, List, Calendar, Users, FileText, etc.
-- Searchable
-- Click to select
-
-### 12. Sidebar Updates: `AppSidebar.tsx`
-
-Add "Board Views" section for owners:
-- Parent item: "Board Views" with LayoutGrid icon
-- Fetch active views using `useCustomBoardViews`
-- Display up to 5 views as sub-items
-- "See all" link if more than 5
-
----
-
-## Routing Updates (`App.tsx`)
-
-Add new routes:
-
-```tsx
-<Route path="/board-views" element={...}>
-  <BoardViews />
-</Route>
-
-<Route path="/board-views/:slug" element={...}>
-  <CustomViewPage />
-</Route>
-```
-
----
-
-## Monday.com Status Colors
-
-```typescript
-const statusColors: Record<string, string> = {
-  'Done': '#00CA72',
-  'Working on it': '#FDAB3D',
-  'Stuck': '#E2445C',
-  'Pending': '#579BFC',
-  'Not Started': '#C4C4C4',
+// Parse settings - handle both string and object
+const defaultSettings: ViewSettings = {
+  show_item_name: true,
+  row_height: 'default',
+  enable_search: true,
+  enable_filters: true,
+  default_sort_column: null,
+  default_sort_order: 'asc',
 };
+
+let settings: ViewSettings = { ...defaultSettings };
+if (typeof view.settings === 'string') {
+  try {
+    settings = { ...defaultSettings, ...JSON.parse(view.settings) };
+  } catch {
+    console.error('[get-board-view-data] Failed to parse settings');
+  }
+} else if (view.settings) {
+  settings = { ...defaultSettings, ...view.settings };
+}
 ```
 
----
+### Step 4: Redeploy Edge Function
 
-## Implementation Order
-
-1. **Database** - Run migration to create table with RLS
-2. **Types** - Add interfaces to types file
-3. **Edge Function** - Create `get-board-view-data` function
-4. **Hooks** - Implement `useCustomBoardViews` and `useBoardViewData`
-5. **Components** - Build UI components (ViewCard, CreateViewDialog, etc.)
-6. **Pages** - Create BoardViews and CustomViewPage
-7. **Routing** - Add routes to App.tsx
-8. **Sidebar** - Update navigation with dynamic views
+Deploy the updated `get-board-view-data` function to apply the fixes.
 
 ---
 
-## Technical Notes
+## Files to Modify
 
-- Reuse existing patterns from `useBoardConfigs` hook
-- Follow `AddBoardDialog` wizard pattern for CreateViewDialog
-- Use owner's Monday.com token for API calls (same as `get-member-tasks`)
-- Slug generation: lowercase, replace spaces with hyphens, remove special chars
-- View data is NOT cached - always fetches real-time from Monday.com
-- Pagination limit: 50 items per page
+| File | Change |
+|------|--------|
+| Database | Migration to fix corrupted JSONB data |
+| `src/hooks/useCustomBoardViews.ts` | Remove `JSON.stringify()` on lines 126-127 |
+| `supabase/functions/get-board-view-data/index.ts` | Add robust JSONB parsing (lines ~186-200) |
+
+---
+
+## Verification After Fix
+
+1. Check database: `jsonb_typeof(selected_columns)` should return `'array'`
+2. Navigate to `/board-views/teszt-client-error`
+3. Verify data loads from Monday.com without errors
+4. Create a new view to confirm hook fix works
+5. Check edge function logs for successful execution
 
