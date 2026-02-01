@@ -79,6 +79,7 @@ export function useCustomBoardViews(): UseCustomBoardViewsReturn {
               enable_filters: true,
               default_sort_column: null,
               default_sort_order: 'asc',
+              view_mode: 'table',
             },
       }));
 
