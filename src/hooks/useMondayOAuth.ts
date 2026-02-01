@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 
@@ -10,36 +10,6 @@ export function useMondayOAuth() {
   const [isConnecting, setIsConnecting] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
-  const popupRef = useRef<Window | null>(null);
-
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      // Verify origin for security
-      if (event.origin !== window.location.origin) return;
-      
-      if (event.data?.type === 'oauth-callback') {
-        setIsConnecting(false);
-        popupRef.current = null;
-        
-        if (event.data.success) {
-          toast({
-            title: "Success",
-            description: "Monday.com connected successfully!",
-          });
-          window.location.reload(); // Refresh to update integration status
-        } else {
-          toast({
-            title: "Connection Failed",
-            description: event.data.error || "Failed to connect Monday.com",
-            variant: "destructive",
-          });
-        }
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [toast]);
 
   const connectMonday = () => {
     if (!user?.id) {
@@ -62,17 +32,8 @@ export function useMondayOAuth() {
 
     const authUrl = `${MONDAY_OAUTH_URL}?${params.toString()}`;
 
-    // Open popup window centered on screen
-    const width = 600;
-    const height = 700;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-
-    popupRef.current = window.open(
-      authUrl,
-      'monday-oauth',
-      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
-    );
+    // Direct redirect instead of popup
+    window.location.href = authUrl;
   };
 
   return { connectMonday, isConnecting };
