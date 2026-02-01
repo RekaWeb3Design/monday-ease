@@ -1,40 +1,6 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { decodeBase64 } from "https://deno.land/std@0.220.1/encoding/base64.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
-
-// Decrypt access token using AES-GCM
-async function decryptToken(encryptedData: string, encryptionKey: string): Promise<string> {
-  try {
-    const combined = decodeBase64(encryptedData);
-    const iv = combined.slice(0, 12);
-    const ciphertext = combined.slice(12);
-
-    const keyData = new TextEncoder().encode(encryptionKey.padEnd(32, '0').slice(0, 32));
-    const cryptoKey = await crypto.subtle.importKey(
-      "raw",
-      keyData,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["decrypt"]
-    );
-
-    const decrypted = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv },
-      cryptoKey,
-      ciphertext
-    );
-
-    return new TextDecoder().decode(decrypted);
-  } catch (error) {
-    console.error("[get-board-view-data] Decryption error:", error);
-    return encryptedData;
-  }
-}
+import { getAuthenticatedContext, AuthError } from "../_shared/auth.ts";
+import { getDecryptedMondayToken, callMondayAPI, MondayIntegrationError, MondayAPIError } from "../_shared/monday.ts";
+import { jsonResponse, corsPreflightResponse } from "../_shared/cors.ts";
 
 interface ViewColumn {
   id: string;
@@ -52,42 +18,24 @@ interface ViewSettings {
   default_sort_order: string;
 }
 
+const defaultSettings: ViewSettings = {
+  show_item_name: true,
+  row_height: "default",
+  enable_search: true,
+  enable_filters: true,
+  default_sort_column: null,
+  default_sort_order: "asc",
+};
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return corsPreflightResponse();
   }
 
   try {
-    // ── Step 1: Auth ──────────────────────────────────────────────
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      console.error("[get-board-view-data] Missing authorization");
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const { user, supabase, adminClient } = await getAuthenticatedContext(req);
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      console.error("[get-board-view-data] JWT verification failed:", userError);
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    console.log("[get-board-view-data] User verified:", user.id);
-
-    // ── Step 2: Parse query params ────────────────────────────────
+    // ── Parse query params ────────────────────────────────
     const url = new URL(req.url);
     const viewId = url.searchParams.get("view_id");
     const page = parseInt(url.searchParams.get("page") || "1", 10);
@@ -97,15 +45,10 @@ Deno.serve(async (req: Request) => {
     const sortOrder = url.searchParams.get("order") || "asc";
 
     if (!viewId) {
-      return new Response(
-        JSON.stringify({ error: "view_id is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return jsonResponse({ error: "view_id is required" }, 400);
     }
 
-    console.log("[get-board-view-data] Params:", { viewId, page, limit, search, sortColumn, sortOrder });
-
-    // ── Step 3: Fetch view config ─────────────────────────────────
+    // ── Fetch view config ─────────────────────────────────
     const { data: view, error: viewError } = await supabase
       .from("custom_board_views")
       .select("*")
@@ -113,17 +56,11 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (viewError || !view) {
-      console.error("[get-board-view-data] View not found:", viewError);
-      return new Response(
-        JSON.stringify({ error: "View not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return jsonResponse({ error: "View not found" }, 404);
     }
 
-    console.log("[get-board-view-data] View found:", view.name);
-
-    // ── Step 4: Verify user access ────────────────────────────────
-    const { data: membership, error: membershipError } = await supabase
+    // ── Verify user access ────────────────────────────────
+    const { data: membership } = await supabase
       .from("organization_members")
       .select("id")
       .eq("user_id", user.id)
@@ -131,7 +68,6 @@ Deno.serve(async (req: Request) => {
       .eq("status", "active")
       .maybeSingle();
 
-    // Also check if user is the org owner
     const { data: org } = await supabase
       .from("organizations")
       .select("owner_id")
@@ -142,85 +78,39 @@ Deno.serve(async (req: Request) => {
     const isMember = !!membership;
 
     if (!isOwner && !isMember) {
-      console.error("[get-board-view-data] Access denied for user:", user.id);
-      return new Response(
-        JSON.stringify({ error: "Access denied" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return jsonResponse({ error: "Access denied" }, 403);
     }
 
-    // ── Step 5: Get owner's Monday token ──────────────────────────
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
-
+    // ── Get owner's Monday token ──────────────────────────
     const ownerId = org!.owner_id;
+    const mondayToken = await getDecryptedMondayToken(ownerId, adminClient);
 
-    const { data: integration, error: integrationError } = await adminClient
-      .from("user_integrations")
-      .select("access_token")
-      .eq("user_id", ownerId)
-      .eq("integration_type", "monday")
-      .eq("status", "connected")
-      .single();
-
-    if (integrationError || !integration) {
-      console.error("[get-board-view-data] Monday integration not found");
-      return new Response(
-        JSON.stringify({ 
-          error: "Monday.com integration not configured",
-          items: [],
-          total_count: 0 
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const encryptionKey = Deno.env.get("ENCRYPTION_KEY");
-    let mondayToken = integration.access_token;
-
-    if (encryptionKey) {
-      mondayToken = await decryptToken(integration.access_token, encryptionKey);
-    }
-
-    // ── Step 6: Fetch data from Monday.com ────────────────────────
-    // Parse selected_columns - handle both string and array formats
+    // ── Parse view configuration ──────────────────────────
     let selectedColumns: ViewColumn[] = [];
-    if (typeof view.selected_columns === 'string') {
+    if (typeof view.selected_columns === "string") {
       try {
         selectedColumns = JSON.parse(view.selected_columns);
       } catch {
-        console.error('[get-board-view-data] Failed to parse selected_columns');
         selectedColumns = [];
       }
     } else {
       selectedColumns = view.selected_columns || [];
     }
 
-    // Parse settings - handle both string and object formats
-    const defaultSettings: ViewSettings = {
-      show_item_name: true,
-      row_height: 'default',
-      enable_search: true,
-      enable_filters: true,
-      default_sort_column: null,
-      default_sort_order: 'asc',
-    };
-
     let settings: ViewSettings = { ...defaultSettings };
-    if (typeof view.settings === 'string') {
+    if (typeof view.settings === "string") {
       try {
         settings = { ...defaultSettings, ...JSON.parse(view.settings) };
       } catch {
-        console.error('[get-board-view-data] Failed to parse settings');
+        // keep defaults
       }
     } else if (view.settings) {
       settings = { ...defaultSettings, ...view.settings };
     }
 
-    const columnIds = selectedColumns.map(c => c.id);
+    const columnIds = selectedColumns.map((c) => c.id);
 
-    console.log("[get-board-view-data] Fetching board:", view.monday_board_id, "columns:", columnIds.length);
-
+    // ── Fetch data from Monday.com ────────────────────────
     const query = `
       query {
         boards(ids: [${view.monday_board_id}]) {
@@ -261,65 +151,40 @@ Deno.serve(async (req: Request) => {
       }
     `;
 
-    const mondayResponse = await fetch("https://api.monday.com/v2", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: mondayToken.startsWith("Bearer ") ? mondayToken : `Bearer ${mondayToken}`,
-      },
-      body: JSON.stringify({ query }),
-    });
+    const emptyResponse = {
+      view: { name: view.name, icon: view.icon, settings, columns: selectedColumns },
+      items: [],
+      total_count: 0,
+      page,
+      limit,
+    };
 
-    if (!mondayResponse.ok) {
-      const errorText = await mondayResponse.text();
-      console.error("[get-board-view-data] Monday API error:", errorText);
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch data from Monday.com" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    let data;
+    try {
+      data = await callMondayAPI<{
+        boards: Array<{
+          id: string;
+          name: string;
+          items_page: { items: any[] };
+          columns: Array<{ id: string; title: string; type: string }>;
+        }>;
+      }>(mondayToken, query);
+    } catch (err) {
+      if (err instanceof MondayIntegrationError) {
+        return jsonResponse({ ...emptyResponse, error: "Monday.com integration not configured" });
+      }
+      throw err;
     }
 
-    const mondayData = await mondayResponse.json();
-
-    if (mondayData.errors) {
-      console.error("[get-board-view-data] Monday API errors:", mondayData.errors);
-      return new Response(
-        JSON.stringify({ error: "Monday.com API error" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const board = mondayData.data?.boards?.[0];
+    const board = data.boards?.[0];
     if (!board || !board.items_page?.items) {
-      return new Response(
-        JSON.stringify({
-          view: {
-            name: view.name,
-            icon: view.icon,
-            settings,
-            columns: selectedColumns,
-          },
-          items: [],
-          total_count: 0,
-          page,
-          limit,
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return jsonResponse(emptyResponse);
     }
 
-    // Build column map for titles
-    const columnMap: Record<string, { title: string; type: string }> = {};
-    for (const col of board.columns || []) {
-      columnMap[col.id] = { title: col.title, type: col.type };
-    }
-
-    // ── Step 7: Transform and filter items ────────────────────────
+    // ── Transform and filter items ────────────────────────
     let items = board.items_page.items.map((item: any) => {
       const columnValues: Record<string, any> = {};
-
       for (const cv of item.column_values || []) {
-        // Only include selected columns
         if (columnIds.length === 0 || columnIds.includes(cv.id)) {
           columnValues[cv.id] = {
             text: cv.text,
@@ -330,22 +195,14 @@ Deno.serve(async (req: Request) => {
           };
         }
       }
-
-      return {
-        id: item.id,
-        name: item.name,
-        column_values: columnValues,
-      };
+      return { id: item.id, name: item.name, column_values: columnValues };
     });
 
     // Apply search filter
     if (search) {
       const searchLower = search.toLowerCase();
       items = items.filter((item: any) => {
-        // Search in item name
         if (item.name.toLowerCase().includes(searchLower)) return true;
-        
-        // Search in column values
         for (const cv of Object.values(item.column_values) as any[]) {
           if (cv.text && cv.text.toLowerCase().includes(searchLower)) return true;
           if (cv.label && cv.label.toLowerCase().includes(searchLower)) return true;
@@ -356,54 +213,45 @@ Deno.serve(async (req: Request) => {
 
     // Apply sorting
     const effectiveSortColumn = sortColumn || settings.default_sort_column;
-    const effectiveSortOrder = sortColumn ? sortOrder : (settings.default_sort_order || 'asc');
+    const effectiveSortOrder = sortColumn ? sortOrder : settings.default_sort_order || "asc";
 
     if (effectiveSortColumn) {
       items.sort((a: any, b: any) => {
         let aVal: string, bVal: string;
-
-        if (effectiveSortColumn === 'name') {
-          aVal = a.name || '';
-          bVal = b.name || '';
+        if (effectiveSortColumn === "name") {
+          aVal = a.name || "";
+          bVal = b.name || "";
         } else {
-          aVal = a.column_values[effectiveSortColumn]?.text || a.column_values[effectiveSortColumn]?.label || '';
-          bVal = b.column_values[effectiveSortColumn]?.text || b.column_values[effectiveSortColumn]?.label || '';
+          aVal = a.column_values[effectiveSortColumn]?.text || a.column_values[effectiveSortColumn]?.label || "";
+          bVal = b.column_values[effectiveSortColumn]?.text || b.column_values[effectiveSortColumn]?.label || "";
         }
-
         const comparison = aVal.localeCompare(bVal);
-        return effectiveSortOrder === 'desc' ? -comparison : comparison;
+        return effectiveSortOrder === "desc" ? -comparison : comparison;
       });
     }
 
     const totalCount = items.length;
-
-    // Apply pagination
     const startIndex = (page - 1) * limit;
     const paginatedItems = items.slice(startIndex, startIndex + limit);
 
-    console.log("[get-board-view-data] Returning", paginatedItems.length, "of", totalCount, "items");
-
-    return new Response(
-      JSON.stringify({
-        view: {
-          name: view.name,
-          icon: view.icon,
-          settings,
-          columns: selectedColumns,
-        },
-        items: paginatedItems,
-        total_count: totalCount,
-        page,
-        limit,
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-
+    return jsonResponse({
+      view: { name: view.name, icon: view.icon, settings, columns: selectedColumns },
+      items: paginatedItems,
+      total_count: totalCount,
+      page,
+      limit,
+    });
   } catch (error) {
-    console.error("[get-board-view-data] Unexpected error:", error);
-    return new Response(
-      JSON.stringify({ error: "Internal server error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    if (error instanceof AuthError) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+    if (error instanceof MondayIntegrationError) {
+      return jsonResponse({ error: error.message, items: [], total_count: 0 });
+    }
+    if (error instanceof MondayAPIError) {
+      return jsonResponse({ error: "Failed to fetch data from Monday.com" }, 500);
+    }
+    console.error("Unexpected error:", error);
+    return jsonResponse({ error: "Internal server error" }, 500);
   }
 });
