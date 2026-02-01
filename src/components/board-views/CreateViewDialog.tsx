@@ -66,6 +66,7 @@ const DEFAULT_SETTINGS: ViewSettings = {
   enable_filters: true,
   default_sort_column: null,
   default_sort_order: 'asc',
+  view_mode: 'table',
 };
 
 // Sortable column item component for drag-and-drop

@@ -228,6 +228,7 @@ export interface ViewSettings {
   enable_filters: boolean;
   default_sort_column: string | null;
   default_sort_order: 'asc' | 'desc';
+  view_mode: 'table' | 'cards' | 'gallery';
 }
 
 export interface ViewDataResponse {

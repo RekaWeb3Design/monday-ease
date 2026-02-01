@@ -10,6 +10,9 @@ import {
   ChevronRight,
   Loader2,
   Filter,
+  Table as TableIcon,
+  LayoutGrid,
+  Grid3X3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +24,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ViewDataTable } from "@/components/board-views/ViewDataTable";
+import { CardView } from "@/components/board-views/CardView";
+import { GalleryView } from "@/components/board-views/GalleryView";
 import { CreateViewDialog } from "@/components/board-views/CreateViewDialog";
 import { getIconByName } from "@/components/board-views/IconPicker";
 import { useCustomBoardViews } from "@/hooks/useCustomBoardViews";
@@ -309,6 +315,30 @@ export default function CustomViewPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* View Mode Toggle */}
+          <ToggleGroup 
+            type="single" 
+            value={settings.view_mode || 'table'} 
+            onValueChange={(mode) => {
+              if (mode && view) {
+                updateView(view.id, { 
+                  settings: { ...settings, view_mode: mode as 'table' | 'cards' | 'gallery' } 
+                });
+              }
+            }}
+            className="border rounded-md"
+          >
+            <ToggleGroupItem value="table" aria-label="Table view" className="px-2.5">
+              <TableIcon className="h-4 w-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="cards" aria-label="Card view" className="px-2.5">
+              <LayoutGrid className="h-4 w-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="gallery" aria-label="Gallery view" className="px-2.5">
+              <Grid3X3 className="h-4 w-4" />
+            </ToggleGroupItem>
+          </ToggleGroup>
+
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4 mr-1" />
             Refresh
@@ -441,17 +471,37 @@ export default function CustomViewPage() {
         </div>
       )}
 
-      {/* Data table */}
-      <ViewDataTable
-        columns={columns}
-        items={filteredItems}
-        settings={settings}
-        isLoading={isLoading}
-        sortColumn={sortColumn}
-        sortOrder={sortOrder}
-        onSort={handleSort}
-        onColumnsReorder={isOwner ? handleColumnsReorder : undefined}
-      />
+      {/* Data display based on view mode */}
+      {(settings.view_mode || 'table') === 'table' && (
+        <ViewDataTable
+          columns={columns}
+          items={filteredItems}
+          settings={settings}
+          isLoading={isLoading}
+          sortColumn={sortColumn}
+          sortOrder={sortOrder}
+          onSort={handleSort}
+          onColumnsReorder={isOwner ? handleColumnsReorder : undefined}
+        />
+      )}
+
+      {settings.view_mode === 'cards' && (
+        <CardView
+          items={filteredItems}
+          columns={columns}
+          settings={settings}
+          isLoading={isLoading}
+        />
+      )}
+
+      {settings.view_mode === 'gallery' && (
+        <GalleryView
+          items={filteredItems}
+          columns={columns}
+          settings={settings}
+          isLoading={isLoading}
+        />
+      )}
 
       {/* Footer with pagination */}
       <div className="flex items-center justify-between">
