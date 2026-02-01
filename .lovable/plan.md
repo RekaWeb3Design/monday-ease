@@ -1,144 +1,297 @@
 
 
-# Add 2-Step Monday.com Connection Flow
+# Redesign Integrations Page: Guided Step-by-Step Flow
 
 ## Overview
 
-Update the Integrations page to guide users through a 2-step process for connecting Monday.com: first installing the MondayEase app on their workspace, then authorizing the connection.
+Replace the current 2-card side-by-side layout with a single card containing a guided vertical step-by-step process for connecting Monday.com.
 
 ---
 
-## Changes Summary
+## Current State Analysis
+
+The current implementation (lines 144-208) shows two separate cards side-by-side for Step 1 and Step 2. The new design will:
+- Combine both steps into a single card
+- Add a checkbox gate between steps
+- Disable Step 2 until Step 1 checkbox is checked
+- Add "Connect a different account" option when connected
+
+---
+
+## Implementation Changes
 
 | File | Changes |
 |------|---------|
-| `src/pages/Integrations.tsx` | Replace single Connect button with 2-step flow cards |
+| `src/pages/Integrations.tsx` | Complete redesign of Monday.com section |
 
 ---
 
-## Implementation Details
+## New Component Structure
 
-### Updated Monday.com Section
-
-When **NOT connected**, show two cards in sequence:
-
-**Step 1 Card:**
-- Heading: "Step 1: Install MondayEase App"
-- Description explaining the install process
-- Blue outline button: "Install on Monday.com"
-- Opens install URL in new tab
-- Small "Skip to Step 2" link below
-
-**Step 2 Card:**
-- Heading: "Step 2: Connect Your Account"
-- Description explaining authorization
-- Blue filled button: "Connect Monday.com"
-- Uses existing `connectMonday` function
-
-When **connected**, show the existing connected state (workspace name, connected date, disconnect button).
-
----
-
-## Visual Layout
-
-### Not Connected State
-
-```text
-+------------------------------------------------------------------+
-| Integrations                                                      |
-| Connect your tools to unlock automation features                  |
-+------------------------------------------------------------------+
-
-Connected Services
-------------------
-
-+-------------------------------+  +-------------------------------+
-| [Monday Logo]                 |  | [Monday Logo]                 |
-|                               |  |                               |
-| Step 1: Install MondayEase    |  | Step 2: Connect Your Account  |
-| App                           |  |                               |
-|                               |  | After installing, authorize   |
-| First, install the MondayEase |  | MondayEase to access your     |
-| app on your Monday.com        |  | boards.                       |
-| workspace. This allows us to  |  |                               |
-| securely access your boards.  |  | [====Connect Monday.com====]  |
-|                               |  |        (blue filled)          |
-| [---Install on Monday.com---] |  |                               |
-|       (blue outline)          |  |                               |
-|                               |  |                               |
-| Already installed? Skip to    |  |                               |
-| Step 2                        |  |                               |
-+-------------------------------+  +-------------------------------+
-```
-
-### Connected State (unchanged)
-
-```text
-+-------------------------------+
-| [Monday Logo]  [Connected ✓]  |
-| Monday.com                    |
-|                               |
-| Connect your Monday.com       |
-| account to sync boards...     |
-|                               |
-| Workspace: My Workspace       |
-| Connected: Jan 15, 2025       |
-|                               |
-| [======Disconnect======]      |
-|         (red)                 |
-+-------------------------------+
-```
-
----
-
-## Code Changes
-
-### Add Install URL Constant
+### Add Import
 
 ```typescript
-const MONDAY_INSTALL_URL = 'https://auth.monday.com/oauth2/authorize?client_id=6f701c9989acf31a7af8a9c497016ce6&response_type=install';
+import { useState } from "react"; // Add useState to existing useEffect import
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
 ```
 
-### Install Button Handler
+### Add State
 
 ```typescript
-const handleInstall = () => {
-  window.open(MONDAY_INSTALL_URL, '_blank', 'noopener,noreferrer');
+const [installComplete, setInstallComplete] = useState(false);
+```
+
+---
+
+## Visual Design
+
+### State 1: Not Connected
+
+```text
++----------------------------------------------------------+
+| [Monday Logo]                                             |
+|                                                           |
+| Monday.com Integration                                    |
+| Connect your Monday.com workspace to MondayEase           |
+|                                                           |
+| --------------------------------------------------------- |
+|                                                           |
+|  (1)  Step 1: Install MondayEase App                     |
+|       Install the MondayEase app on your Monday.com       |
+|       workspace to allow secure access to your boards.    |
+|                                                           |
+|       [--- Install on Monday.com ---]  (blue outline)     |
+|                                                           |
+|       [x] I have completed the installation               |
+|                                                           |
+| --------------------------------------------------------- |
+|                                                           |
+|  (2)  Step 2: Connect Your Account           [DISABLED]   |
+|       Authorize MondayEase to access your                 |
+|       Monday.com boards.                                  |
+|                                                           |
+|       [====Connect Monday.com====]  (disabled/grayed)     |
+|                                                           |
++----------------------------------------------------------+
+
+When checkbox is checked:
+
++----------------------------------------------------------+
+|  (2)  Step 2: Connect Your Account           [ENABLED]    |
+|       Authorize MondayEase to access your                 |
+|       Monday.com boards.                                  |
+|                                                           |
+|       [====Connect Monday.com====]  (blue filled)         |
++----------------------------------------------------------+
+```
+
+### State 2: Connected
+
+```text
++----------------------------------------------------------+
+| [Monday Logo]              [Connected ✓] (green badge)    |
+|                                                           |
+| Monday.com                                                |
+| Your workspace is connected to MondayEase                 |
+|                                                           |
+| Workspace: My Workspace                                   |
+| Connected: Jan 15, 2025                                   |
+|                                                           |
+| [========Disconnect========]  (red button)                |
+|                                                           |
+| --------------------------------------------------------- |
+|                                                           |
+| Connect a different Monday.com account  (text link)       |
+|                                                           |
++----------------------------------------------------------+
+```
+
+---
+
+## Code Implementation
+
+### Step Badge Component
+
+```typescript
+function StepBadge({ step, disabled }: { step: number; disabled?: boolean }) {
+  return (
+    <div className={`
+      flex items-center justify-center w-6 h-6 rounded-full text-sm font-semibold
+      ${disabled 
+        ? 'bg-muted text-muted-foreground' 
+        : 'bg-[#0073EA] text-white'}
+    `}>
+      {step}
+    </div>
+  );
+}
+```
+
+### Not Connected State JSX
+
+```typescript
+<Card className="max-w-2xl">
+  <CardHeader className="flex flex-row items-start gap-4 space-y-0">
+    <img src={mondayLogo} alt="Monday.com" className="h-12 w-12 shrink-0 object-contain" />
+    <div className="flex-1 space-y-1">
+      <CardTitle>Monday.com Integration</CardTitle>
+      <CardDescription>
+        Connect your Monday.com workspace to MondayEase
+      </CardDescription>
+    </div>
+  </CardHeader>
+  <CardContent className="space-y-6">
+    {/* Step 1 */}
+    <div className="space-y-4">
+      <div className="flex items-start gap-3">
+        <StepBadge step={1} />
+        <div className="flex-1 space-y-2">
+          <h3 className="font-semibold">Step 1: Install MondayEase App</h3>
+          <p className="text-sm text-muted-foreground">
+            Install the MondayEase app on your Monday.com workspace to allow secure access to your boards.
+          </p>
+          <Button
+            variant="outline"
+            className="border-[#0073EA] text-[#0073EA] hover:bg-[#0073EA]/10"
+            onClick={() => window.open('...install URL...', '_blank')}
+          >
+            Install on Monday.com
+          </Button>
+          <div className="flex items-center gap-2 pt-2">
+            <Checkbox 
+              id="install-complete" 
+              checked={installComplete}
+              onCheckedChange={(checked) => setInstallComplete(checked === true)}
+            />
+            <label 
+              htmlFor="install-complete" 
+              className="text-sm cursor-pointer"
+            >
+              I have completed the installation
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <Separator />
+
+    {/* Step 2 */}
+    <div className={`space-y-4 transition-all duration-300 ${!installComplete ? 'opacity-50' : ''}`}>
+      <div className="flex items-start gap-3">
+        <StepBadge step={2} disabled={!installComplete} />
+        <div className="flex-1 space-y-2">
+          <h3 className="font-semibold">Step 2: Connect Your Account</h3>
+          <p className="text-sm text-muted-foreground">
+            Authorize MondayEase to access your Monday.com boards.
+          </p>
+          <Button
+            onClick={connectMonday}
+            disabled={!installComplete || isConnecting}
+            className="bg-[#0073EA] hover:bg-[#0060c2] text-white disabled:opacity-50"
+          >
+            {isConnecting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Connecting...
+              </>
+            ) : (
+              'Connect Monday.com'
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  </CardContent>
+</Card>
+```
+
+### Connected State JSX
+
+```typescript
+<Card className="max-w-2xl">
+  <CardHeader className="flex flex-row items-start gap-4 space-y-0">
+    <img src={mondayLogo} alt="Monday.com" className="h-12 w-12 shrink-0 object-contain" />
+    <div className="flex-1 space-y-1">
+      <div className="flex items-center justify-between">
+        <CardTitle>Monday.com</CardTitle>
+        <Badge className="bg-primary text-primary-foreground">Connected</Badge>
+      </div>
+      <CardDescription>
+        Your workspace is connected to MondayEase
+      </CardDescription>
+    </div>
+  </CardHeader>
+  <CardContent className="space-y-4">
+    {integration?.workspace_name && (
+      <p className="text-sm text-muted-foreground">
+        <span className="font-medium">Workspace:</span> {integration.workspace_name}
+      </p>
+    )}
+    {formattedDate && (
+      <p className="text-sm text-muted-foreground">
+        <span className="font-medium">Connected:</span> {formattedDate}
+      </p>
+    )}
+    <Button 
+      variant="destructive" 
+      className="w-full" 
+      onClick={handleDisconnect}
+      disabled={isDisconnecting}
+    >
+      {isDisconnecting ? (
+        <>
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Disconnecting...
+        </>
+      ) : 'Disconnect'}
+    </Button>
+    
+    <Separator />
+    
+    <button
+      type="button"
+      className="text-sm text-muted-foreground hover:text-primary hover:underline transition-colors w-full text-center"
+      onClick={handleSwitchAccount}
+    >
+      Connect a different Monday.com account
+    </button>
+  </CardContent>
+</Card>
+```
+
+### Switch Account Handler
+
+```typescript
+const handleSwitchAccount = async () => {
+  const success = await disconnect('monday');
+  if (success) {
+    setInstallComplete(false); // Reset checkbox
+    refetch();
+  }
 };
 ```
 
-### Skip to Step 2 Link
+---
 
-Simple scroll or just visual indication - since both cards are visible, clicking will just draw attention to Step 2.
+## Key Technical Details
 
-### Conditional Rendering Logic
-
-```typescript
-{isConnected ? (
-  // Existing connected state card
-) : (
-  // Two cards side by side: Step 1 and Step 2
-)}
-```
+| Feature | Implementation |
+|---------|----------------|
+| Checkbox state | Local `useState`, resets on page refresh |
+| Step 2 disabled style | `opacity-50` + `pointer-events-none` on button |
+| Enable animation | `transition-all duration-300` on Step 2 container |
+| Step badge | Inline component with conditional styling |
+| Switch account | Disconnect first, then reset `installComplete` to false |
+| Card width | `max-w-2xl` to prevent full-width stretch |
 
 ---
 
-## Card Styling
+## Files Unchanged
 
-| Element | Style |
-|---------|-------|
-| Step 1 Button | `variant="outline"` with blue border (`border-[#0073EA] text-[#0073EA]`) |
-| Step 2 Button | Existing blue filled style (`bg-[#0073EA]`) |
-| Skip link | `text-sm text-primary hover:underline cursor-pointer` |
-| Both cards | Standard Card component, same width |
-
----
-
-## Technical Notes
-
-- Install URL uses `response_type=install` instead of `response_type=code`
-- Install opens in new tab so users can return to Step 2
-- Step 2 uses existing `connectMonday()` hook function (direct redirect)
-- Both steps visible at once for clarity
-- Responsive: cards stack on mobile, side-by-side on larger screens
+- Coming Soon cards for Slack and Notion remain as-is
+- Page header remains as-is
+- All hooks (`useIntegration`, `useMondayOAuth`, `useDisconnectIntegration`) remain unchanged
+- URL params handling for OAuth callback remains unchanged
 
