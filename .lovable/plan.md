@@ -1,152 +1,144 @@
 
 
-# Fix Monday OAuth: Change Popup to Direct Redirect
+# Add 2-Step Monday.com Connection Flow
 
-## Problem
+## Overview
 
-The Monday OAuth popup window returns a 400 error, but the same authorization URL works correctly when opened in a regular browser tab. This is a known issue with some OAuth providers that block or restrict popup windows.
-
-## Solution
-
-Change from popup-based OAuth to direct page redirect. The user will be redirected to Monday's authorization page in the same tab, then returned to the app after authorizing.
+Update the Integrations page to guide users through a 2-step process for connecting Monday.com: first installing the MondayEase app on their workspace, then authorizing the connection.
 
 ---
 
-## Files to Modify
+## Changes Summary
 
 | File | Changes |
 |------|---------|
-| `src/hooks/useMondayOAuth.ts` | Replace `window.open()` with `window.location.href` |
+| `src/pages/Integrations.tsx` | Replace single Connect button with 2-step flow cards |
 
 ---
 
 ## Implementation Details
 
-### Update useMondayOAuth.ts
+### Updated Monday.com Section
 
-The hook currently:
-- Uses `window.open()` to create a popup (lines 71-75)
-- Has a message listener for popup communication (lines 15-42)
-- Maintains popup state with `popupRef` (line 13)
+When **NOT connected**, show two cards in sequence:
 
-After the fix:
-- Use `window.location.href` for direct redirect
-- Remove popup-related code (popupRef, message listener)
-- Simplify the hook since callback handling is already in Integrations page
+**Step 1 Card:**
+- Heading: "Step 1: Install MondayEase App"
+- Description explaining the install process
+- Blue outline button: "Install on Monday.com"
+- Opens install URL in new tab
+- Small "Skip to Step 2" link below
 
-### Changes
+**Step 2 Card:**
+- Heading: "Step 2: Connect Your Account"
+- Description explaining authorization
+- Blue filled button: "Connect Monday.com"
+- Uses existing `connectMonday` function
 
-**Remove:**
-- `popupRef` ref (line 13)
-- `useEffect` with message listener (lines 15-42)
-- Popup window sizing/positioning code (lines 66-75)
+When **connected**, show the existing connected state (workspace name, connected date, disconnect button).
 
-**Replace with:**
-```typescript
-// Direct redirect instead of popup
-window.location.href = authUrl;
+---
+
+## Visual Layout
+
+### Not Connected State
+
+```text
++------------------------------------------------------------------+
+| Integrations                                                      |
+| Connect your tools to unlock automation features                  |
++------------------------------------------------------------------+
+
+Connected Services
+------------------
+
++-------------------------------+  +-------------------------------+
+| [Monday Logo]                 |  | [Monday Logo]                 |
+|                               |  |                               |
+| Step 1: Install MondayEase    |  | Step 2: Connect Your Account  |
+| App                           |  |                               |
+|                               |  | After installing, authorize   |
+| First, install the MondayEase |  | MondayEase to access your     |
+| app on your Monday.com        |  | boards.                       |
+| workspace. This allows us to  |  |                               |
+| securely access your boards.  |  | [====Connect Monday.com====]  |
+|                               |  |        (blue filled)          |
+| [---Install on Monday.com---] |  |                               |
+|       (blue outline)          |  |                               |
+|                               |  |                               |
+| Already installed? Skip to    |  |                               |
+| Step 2                        |  |                               |
++-------------------------------+  +-------------------------------+
 ```
 
-### Simplified Hook
+### Connected State (unchanged)
 
-```typescript
-import { useState } from 'react';
-import { useAuth } from '@/hooks/useAuth';
-import { useToast } from '@/hooks/use-toast';
-
-const MONDAY_CLIENT_ID = '6f701c9989acf31a7af8a9c497016ce6';
-const MONDAY_OAUTH_URL = 'https://auth.monday.com/oauth2/authorize';
-const REDIRECT_URI = 'https://yqjugovqhvxoxvrceqqp.supabase.co/functions/v1/monday-oauth-callback';
-
-export function useMondayOAuth() {
-  const [isConnecting, setIsConnecting] = useState(false);
-  const { user } = useAuth();
-  const { toast } = useToast();
-
-  const connectMonday = () => {
-    if (!user?.id) {
-      toast({
-        title: "Error",
-        description: "You must be logged in to connect Monday.com",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsConnecting(true);
-
-    const params = new URLSearchParams({
-      client_id: MONDAY_CLIENT_ID,
-      redirect_uri: REDIRECT_URI,
-      state: user.id,
-      scope: 'me:read boards:read boards:write',
-    });
-
-    const authUrl = `${MONDAY_OAUTH_URL}?${params.toString()}`;
-
-    // Direct redirect instead of popup
-    window.location.href = authUrl;
-  };
-
-  return { connectMonday, isConnecting };
-}
+```text
++-------------------------------+
+| [Monday Logo]  [Connected ✓]  |
+| Monday.com                    |
+|                               |
+| Connect your Monday.com       |
+| account to sync boards...     |
+|                               |
+| Workspace: My Workspace       |
+| Connected: Jan 15, 2025       |
+|                               |
+| [======Disconnect======]      |
+|         (red)                 |
++-------------------------------+
 ```
 
 ---
 
-## Flow Comparison
+## Code Changes
 
-### Before (Popup)
+### Add Install URL Constant
 
-```text
-User clicks Connect
-       ↓
-Popup opens → Monday auth page
-       ↓
-User authorizes
-       ↓
-Popup redirects to /oauth-callback
-       ↓
-Callback sends postMessage to parent
-       ↓
-Parent window shows toast, reloads
+```typescript
+const MONDAY_INSTALL_URL = 'https://auth.monday.com/oauth2/authorize?client_id=6f701c9989acf31a7af8a9c497016ce6&response_type=install';
 ```
 
-### After (Direct Redirect)
+### Install Button Handler
 
-```text
-User clicks Connect
-       ↓
-Same tab redirects → Monday auth page
-       ↓
-User authorizes
-       ↓
-Redirects to edge function
-       ↓
-Edge function redirects to /oauth-callback
-       ↓
-/oauth-callback redirects to /integrations?success=true
-       ↓
-Integrations page shows toast (existing code, lines 42-63)
+```typescript
+const handleInstall = () => {
+  window.open(MONDAY_INSTALL_URL, '_blank', 'noopener,noreferrer');
+};
+```
+
+### Skip to Step 2 Link
+
+Simple scroll or just visual indication - since both cards are visible, clicking will just draw attention to Step 2.
+
+### Conditional Rendering Logic
+
+```typescript
+{isConnected ? (
+  // Existing connected state card
+) : (
+  // Two cards side by side: Step 1 and Step 2
+)}
 ```
 
 ---
 
-## No Changes Needed
+## Card Styling
 
-| Component | Reason |
-|-----------|--------|
-| `src/pages/OAuthCallback.tsx` | Already has fallback redirect logic (lines 18-21) |
-| `src/pages/Integrations.tsx` | Already handles URL params for success/error (lines 42-63) |
-| Edge function | Returns redirect URL that works with both flows |
-| Scope parameter | Already correct: `'me:read boards:read boards:write'` |
-| Redirect URI | Already correct |
+| Element | Style |
+|---------|-------|
+| Step 1 Button | `variant="outline"` with blue border (`border-[#0073EA] text-[#0073EA]`) |
+| Step 2 Button | Existing blue filled style (`bg-[#0073EA]`) |
+| Skip link | `text-sm text-primary hover:underline cursor-pointer` |
+| Both cards | Standard Card component, same width |
 
 ---
 
 ## Technical Notes
 
-- The `isConnecting` state becomes less useful since the page navigates away, but keeping it ensures the button shows loading state briefly before redirect
-- The OAuthCallback page's fallback logic (line 18-21) handles the case when there's no opener window, which is exactly what happens with direct redirect
-- Integrations page already has the `useEffect` to read success/error from URL params and show toasts
+- Install URL uses `response_type=install` instead of `response_type=code`
+- Install opens in new tab so users can return to Step 2
+- Step 2 uses existing `connectMonday()` hook function (direct redirect)
+- Both steps visible at once for clarity
+- Responsive: cards stack on mobile, side-by-side on larger screens
 
