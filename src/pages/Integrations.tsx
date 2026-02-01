@@ -79,35 +79,38 @@ export default function Integrations() {
       {/* Main Integration: Monday.com */}
       <div>
         <h2 className="text-lg font-semibold text-foreground mb-4">Connected Services</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-              <img src={mondayLogo} alt="Monday.com" className="h-12 w-12 shrink-0 object-contain" />
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Monday.com</CardTitle>
-                  {isLoading ? (
-                    <Skeleton className="h-5 w-20" />
-                  ) : isConnected ? (
+        
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-12 w-12" />
+                <Skeleton className="h-6 w-48 mt-2" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-9 w-full" />
+              </CardContent>
+            </Card>
+          </div>
+        ) : isConnected ? (
+          // Connected state - single card
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Card>
+              <CardHeader className="flex flex-row items-start gap-4 space-y-0">
+                <img src={mondayLogo} alt="Monday.com" className="h-12 w-12 shrink-0 object-contain" />
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">Monday.com</CardTitle>
                     <Badge className="bg-primary text-primary-foreground">
                       Connected
                     </Badge>
-                  ) : (
-                    <Badge variant="outline">Not Connected</Badge>
-                  )}
+                  </div>
+                  <CardDescription>
+                    Connect your Monday.com account to sync boards and automate workflows
+                  </CardDescription>
                 </div>
-                <CardDescription>
-                  Connect your Monday.com account to sync boards and automate workflows
-                </CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-32" />
-                  <Skeleton className="h-9 w-full" />
-                </div>
-              ) : isConnected ? (
+              </CardHeader>
+              <CardContent>
                 <div className="space-y-3">
                   {integration?.workspace_name && (
                     <p className="text-sm text-muted-foreground">
@@ -135,7 +138,56 @@ export default function Integrations() {
                     )}
                   </Button>
                 </div>
-              ) : (
+              </CardContent>
+            </Card>
+          </div>
+        ) : (
+          // Not connected - 2-step flow
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Step 1: Install App */}
+            <Card>
+              <CardHeader className="flex flex-row items-start gap-4 space-y-0">
+                <img src={mondayLogo} alt="Monday.com" className="h-12 w-12 shrink-0 object-contain" />
+                <div className="flex-1 space-y-1">
+                  <CardTitle className="text-base">Step 1: Install MondayEase App</CardTitle>
+                  <CardDescription>
+                    First, install the MondayEase app on your Monday.com workspace. This allows us to securely access your boards.
+                  </CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Button
+                  variant="outline"
+                  className="w-full border-[#0073EA] text-[#0073EA] hover:bg-[#0073EA]/10"
+                  onClick={() => window.open('https://auth.monday.com/oauth2/authorize?client_id=6f701c9989acf31a7af8a9c497016ce6&response_type=install', '_blank', 'noopener,noreferrer')}
+                >
+                  Install on Monday.com
+                </Button>
+                <p className="text-sm text-muted-foreground text-center">
+                  Already installed?{' '}
+                  <button 
+                    type="button"
+                    className="text-primary hover:underline cursor-pointer font-medium"
+                    onClick={() => document.getElementById('step-2-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                  >
+                    Skip to Step 2
+                  </button>
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Step 2: Connect Account */}
+            <Card id="step-2-card">
+              <CardHeader className="flex flex-row items-start gap-4 space-y-0">
+                <img src={mondayLogo} alt="Monday.com" className="h-12 w-12 shrink-0 object-contain" />
+                <div className="flex-1 space-y-1">
+                  <CardTitle className="text-base">Step 2: Connect Your Account</CardTitle>
+                  <CardDescription>
+                    After installing, authorize MondayEase to access your boards.
+                  </CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent>
                 <Button
                   onClick={connectMonday}
                   disabled={isConnecting}
@@ -150,10 +202,10 @@ export default function Integrations() {
                     'Connect Monday.com'
                   )}
                 </Button>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
 
       {/* Future Integrations */}
