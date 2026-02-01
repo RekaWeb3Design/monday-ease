@@ -1,115 +1,285 @@
 
 
-# Add View Switcher Dropdown to CustomViewPage
+# Add View Mode Switcher to CustomViewPage
 
 ## Overview
 
-Add a dropdown in the CustomViewPage header that allows users to quickly switch between different board views without going back to the management page. The dropdown shows the current view with its icon and lists all active views from the organization.
+Add toggle buttons in the CustomViewPage header allowing users to switch between Table, Cards, and Gallery display modes. The selected mode persists in the view settings stored in the database.
 
 ---
 
-## File to Modify
+## Files to Create
 
-**`src/pages/CustomViewPage.tsx`**
+| File | Purpose |
+|------|---------|
+| `src/components/board-views/CardView.tsx` | Grid of cards showing items |
+| `src/components/board-views/GalleryView.tsx` | Larger cards in masonry-style grid |
+
+## Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/types/index.ts` | Add `view_mode` to `ViewSettings` interface |
+| `src/pages/CustomViewPage.tsx` | Add toggle buttons, conditional rendering |
+| `src/hooks/useCustomBoardViews.ts` | Update default settings to include view_mode |
 
 ---
 
 ## Implementation Details
 
-### Current Header Structure (lines 258-282)
+### 1. Update ViewSettings Type
 
-The header currently has:
-- Back button (links to `/board-views`)
-- Icon container with view icon
-- Static view name as `<h1>`
-- Badge with board name
+**File: `src/types/index.ts`**
 
-### New Header Structure
+Add `view_mode` field to the `ViewSettings` interface:
 
-Replace the static view name area with a Select dropdown:
-
-```
-[← Back] [Icon] [View Switcher Dropdown ▼]
-                   └─ Board name badge | Updated time
+```typescript
+export interface ViewSettings {
+  show_item_name: boolean;
+  row_height: 'compact' | 'default' | 'comfortable';
+  enable_search: boolean;
+  enable_filters: boolean;
+  default_sort_column: string | null;
+  default_sort_order: 'asc' | 'desc';
+  view_mode: 'table' | 'cards' | 'gallery';  // NEW
+}
 ```
 
 ---
 
-### Changes Required
+### 2. Update Default Settings in Hook
 
-#### 1. Update Header Section (lines 266-281)
+**File: `src/hooks/useCustomBoardViews.ts`**
 
-Replace the static view name display with a Select dropdown:
+Update the default settings parsing (around line 75-82) to include `view_mode`:
+
+```typescript
+settings: row.settings || {
+  show_item_name: true,
+  row_height: 'default',
+  enable_search: true,
+  enable_filters: true,
+  default_sort_column: null,
+  default_sort_order: 'asc',
+  view_mode: 'table',  // NEW
+},
+```
+
+---
+
+### 3. Create CardView Component
+
+**File: `src/components/board-views/CardView.tsx`**
+
+```text
+Design:
++------------------+  +------------------+  +------------------+
+| Item Name        |  | Item Name        |  | Item Name        |
+| [Status Badge]   |  | [Status Badge]   |  | [Status Badge]   |
+|                  |  |                  |  |                  |
+| Label: Value     |  | Label: Value     |  | Label: Value     |
+| Label: Value     |  | Label: Value     |  | Label: Value     |
+| Label: Value     |  | Label: Value     |  | Label: Value     |
++------------------+  +------------------+  +------------------+
+```
+
+Features:
+- 3 columns on desktop (lg), 2 on tablet (md), 1 on mobile
+- Card shows item name as title
+- Status columns displayed as colored badges
+- First 3-4 non-status columns shown as label: value pairs
+- Hover effect with slight scale/shadow change
+- Uses existing ColumnCell component for value rendering
+
+---
+
+### 4. Create GalleryView Component
+
+**File: `src/components/board-views/GalleryView.tsx`**
+
+```text
+Design:
++---------------------------+  +---------------------------+
+| Item Name                 |  | Item Name                 |
+| [Status Badge] [Badge]    |  | [Status Badge] [Badge]    |
+|                           |  |                           |
+| Label: Value              |  | Label: Value              |
+| Label: Value              |  | Label: Value              |
+| Label: Value              |  | Label: Value              |
+| Label: Value              |  | Label: Value              |
+| Label: Value              |  | Label: Value              |
++---------------------------+  +---------------------------+
+```
+
+Features:
+- Larger cards (300-350px width)
+- More column values visible (all selected columns)
+- 2-3 columns on desktop, 1-2 on tablet, 1 on mobile
+- Status badges prominently displayed at top
+- Good for dashboard/overview feel
+- Loading skeleton and empty state handling
+
+---
+
+### 5. Add View Mode Toggle to CustomViewPage
+
+**File: `src/pages/CustomViewPage.tsx`**
+
+#### Add Imports
+
+```typescript
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Table as TableIcon, LayoutGrid, Grid3X3 } from "lucide-react";
+import { CardView } from "@/components/board-views/CardView";
+import { GalleryView } from "@/components/board-views/GalleryView";
+```
+
+#### Add Toggle in Header (next to Refresh button)
 
 ```tsx
-<div className="flex items-center gap-3">
-  <Button variant="ghost" size="icon" asChild>
-    <Link to="/board-views">
-      <ArrowLeft className="h-5 w-5" />
-    </Link>
-  </Button>
-  
-  {/* View Switcher Dropdown */}
-  <Select 
-    value={view.slug} 
-    onValueChange={(slug) => navigate(`/board-views/${slug}`)}
+<div className="flex items-center gap-2">
+  {/* View Mode Toggle - NEW */}
+  <ToggleGroup 
+    type="single" 
+    value={settings.view_mode || 'table'} 
+    onValueChange={(mode) => {
+      if (mode && view) {
+        updateView(view.id, { 
+          settings: { ...settings, view_mode: mode as 'table' | 'cards' | 'gallery' } 
+        });
+      }
+    }}
+    className="border rounded-md"
   >
-    <SelectTrigger className="w-[280px] h-10">
-      <div className="flex items-center gap-2">
-        <div className="flex h-6 w-6 items-center justify-center rounded bg-primary/10 text-primary">
-          <IconComponent className="h-4 w-4" />
-        </div>
-        <span className="font-semibold truncate">{view.name}</span>
-      </div>
-    </SelectTrigger>
-    <SelectContent>
-      {views.filter(v => v.is_active).map((v) => {
-        const VIcon = getIconByName(v.icon);
-        return (
-          <SelectItem key={v.id} value={v.slug}>
-            <div className="flex items-center gap-2 w-full">
-              <VIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-              <span className="truncate">{v.name}</span>
-              <span className="text-xs text-muted-foreground ml-auto truncate max-w-[100px]">
-                {v.monday_board_name}
-              </span>
-            </div>
-          </SelectItem>
-        );
-      })}
-    </SelectContent>
-  </Select>
-  
-  {/* Board info badge */}
-  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-    <Badge variant="secondary" className="text-xs">
-      {view.monday_board_name}
-    </Badge>
-    {view.updated_at && (
-      <span className="text-xs hidden sm:inline">
-        Updated {format(new Date(view.updated_at), "MMM d, h:mm a")}
-      </span>
-    )}
-  </div>
+    <ToggleGroupItem value="table" aria-label="Table view" className="px-2.5">
+      <TableIcon className="h-4 w-4" />
+    </ToggleGroupItem>
+    <ToggleGroupItem value="cards" aria-label="Card view" className="px-2.5">
+      <LayoutGrid className="h-4 w-4" />
+    </ToggleGroupItem>
+    <ToggleGroupItem value="gallery" aria-label="Gallery view" className="px-2.5">
+      <Grid3X3 className="h-4 w-4" />
+    </ToggleGroupItem>
+  </ToggleGroup>
+
+  <Button variant="outline" size="sm" onClick={() => refetch()}>
+    <RefreshCw className="h-4 w-4 mr-1" />
+    Refresh
+  </Button>
+  {/* ... Edit button */}
 </div>
+```
+
+#### Conditional Rendering for View Modes
+
+Replace the current `<ViewDataTable ... />` with:
+
+```tsx
+{/* Data display based on view mode */}
+{(settings.view_mode || 'table') === 'table' && (
+  <ViewDataTable
+    columns={columns}
+    items={filteredItems}
+    settings={settings}
+    isLoading={isLoading}
+    sortColumn={sortColumn}
+    sortOrder={sortOrder}
+    onSort={handleSort}
+    onColumnsReorder={isOwner ? handleColumnsReorder : undefined}
+  />
+)}
+
+{settings.view_mode === 'cards' && (
+  <CardView
+    items={filteredItems}
+    columns={columns}
+    settings={settings}
+    isLoading={isLoading}
+  />
+)}
+
+{settings.view_mode === 'gallery' && (
+  <GalleryView
+    items={filteredItems}
+    columns={columns}
+    settings={settings}
+    isLoading={isLoading}
+  />
+)}
+```
+
+---
+
+## Component Props
+
+### CardView & GalleryView
+
+Both components share the same props interface:
+
+```typescript
+interface CardViewProps {
+  items: ViewDataItem[];
+  columns: ViewColumn[];
+  settings: ViewSettings;
+  isLoading: boolean;
+}
 ```
 
 ---
 
 ## Visual Layout
 
+### Header with Toggle
+
 ```text
-+------------------------------------------------------------------+
-| [←] [📊 Current View Name ▼]  [Board Badge] Updated Jan 30      |
-|                                                                  |
-|     Dropdown expanded:                                           |
-|     ┌────────────────────────────────┐                          |
-|     │ 📊 Current View    Board Name  │  ← Highlighted           |
-|     │ 📋 Sales Pipeline  CRM Board   │                          |
-|     │ 👥 Team Tasks      Projects    │                          |
-|     │ 📅 Deadlines       Planning    │                          |
-|     └────────────────────────────────┘                          |
-+------------------------------------------------------------------+
++----------------------------------------------------------------------+
+| [<-] [View Dropdown ▼]  [Board]      [Table|Cards|Gallery] [Refresh] |
++----------------------------------------------------------------------+
+```
+
+### Toggle Button States
+
+| State | Appearance |
+|-------|------------|
+| Selected | Primary background, white icon |
+| Unselected | Ghost/transparent, muted icon |
+| Hover | Light background highlight |
+
+---
+
+## Card View Grid
+
+```text
+Desktop (lg): 3 columns
++----------+ +----------+ +----------+
+| Card 1   | | Card 2   | | Card 3   |
++----------+ +----------+ +----------+
++----------+ +----------+ +----------+
+| Card 4   | | Card 5   | | Card 6   |
++----------+ +----------+ +----------+
+
+Tablet (md): 2 columns
++---------------+ +---------------+
+| Card 1        | | Card 2        |
++---------------+ +---------------+
+
+Mobile: 1 column
++---------------------------+
+| Card 1                    |
++---------------------------+
+```
+
+---
+
+## Gallery View Grid
+
+```text
+Desktop: 2-3 larger cards per row
++---------------------+ +---------------------+
+| Large Card 1        | | Large Card 2        |
+| More content        | | More content        |
+| visible here        | | visible here        |
++---------------------+ +---------------------+
 ```
 
 ---
@@ -118,30 +288,19 @@ Replace the static view name display with a Select dropdown:
 
 | Action | Result |
 |--------|--------|
-| Click dropdown | Shows all active views from organization |
-| Select different view | Navigates to `/board-views/{slug}` |
-| Current view | Automatically highlighted in dropdown |
-| Click back arrow | Goes to `/board-views` management page |
+| Click Table icon | Switch to table view, save to DB |
+| Click Cards icon | Switch to card grid, save to DB |
+| Click Gallery icon | Switch to gallery view, save to DB |
+| Page load | Restores last selected mode from settings |
 
 ---
 
-## Styling Details
+## Technical Notes
 
-| Element | Style |
-|---------|-------|
-| Dropdown trigger | `w-[280px] h-10` for comfortable size |
-| View icon in trigger | Wrapped in colored container matching sidebar |
-| View name | Font-semibold, truncated if too long |
-| Board name in options | `text-xs text-muted-foreground`, right-aligned |
-| Current selection | Native Select highlighting |
-
----
-
-## No New Imports Needed
-
-All required components are already imported:
-- `Select`, `SelectContent`, `SelectItem`, `SelectTrigger`, `SelectValue` (line 17-23)
-- `useNavigate` (line 2)
-- `getIconByName` (line 26)
-- `views` from `useCustomBoardViews` (line 41)
+- View mode persists in `custom_board_views.settings` JSONB field
+- No migration needed - existing views default to 'table'
+- ToggleGroup ensures only one mode selected at a time
+- Empty string from ToggleGroup ignored (mode must be truthy)
+- CardView and GalleryView reuse ColumnCell for consistent value rendering
+- Both new views handle loading and empty states
 
