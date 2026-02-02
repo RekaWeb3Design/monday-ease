@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { callEdgeFunction } from "@/lib/edge-function";
 import type { MondayUser } from "@/types";
 
 interface UseMondayUsersReturn {
@@ -8,8 +8,6 @@ interface UseMondayUsersReturn {
   error: string | null;
   fetchUsers: () => Promise<void>;
 }
-
-const EDGE_FUNCTION_URL = "https://yqjugovqhvxoxvrceqqp.supabase.co/functions/v1/get-monday-users";
 
 /**
  * Hook to fetch Monday.com workspace users.
@@ -25,33 +23,7 @@ export function useMondayUsers(): UseMondayUsersReturn {
     setError(null);
 
     try {
-      // Get the current session token
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-      if (sessionError || !session?.access_token) {
-        throw new Error("Not authenticated");
-      }
-
-      // Call the edge function
-      const response = await fetch(EDGE_FUNCTION_URL, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${session.access_token}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
+      const data = await callEdgeFunction<{ users: MondayUser[] }>("get-monday-users");
       setUsers(data.users || []);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to fetch Monday users";
@@ -62,10 +34,5 @@ export function useMondayUsers(): UseMondayUsersReturn {
     }
   }, []);
 
-  return {
-    users,
-    isLoading,
-    error,
-    fetchUsers,
-  };
+  return { users, isLoading, error, fetchUsers };
 }

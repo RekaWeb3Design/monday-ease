@@ -27,7 +27,7 @@ export function useMondayOAuth() {
       client_id: MONDAY_CLIENT_ID,
       redirect_uri: REDIRECT_URI,
       state: user.id,
-      scope: 'me:read boards:read boards:write',
+      scopes: 'me:read boards:read boards:write',
     });
 
     const authUrl = `${MONDAY_OAUTH_URL}?${params.toString()}`;

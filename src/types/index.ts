@@ -81,8 +81,6 @@ export interface UserIntegration {
   monday_account_id: string | null;
   monday_user_id: string | null;
   access_token: string;
-  refresh_token: string | null;
-  token_expires_at: string | null;
   scopes: string[] | null;
   connected_at: string | null;
   last_used_at: string | null;

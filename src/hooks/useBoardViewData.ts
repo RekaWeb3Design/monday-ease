@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { callEdgeFunction } from "@/lib/edge-function";
 import { useToast } from "@/hooks/use-toast";
 import type { ViewDataResponse, ViewDataItem, ViewSettings, ViewColumn } from "@/types";
 
@@ -50,40 +50,19 @@ export function useBoardViewData({
     setError(null);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-
-      if (!token) {
-        throw new Error("Not authenticated");
-      }
-
-      const params = new URLSearchParams({
+      const params: Record<string, string> = {
         view_id: viewId,
         page: String(page),
         limit: String(limit),
-      });
+      };
+      if (search) params.search = search;
+      if (sortColumn) params.sort = sortColumn;
+      if (sortOrder) params.order = sortOrder;
 
-      if (search) params.set("search", search);
-      if (sortColumn) params.set("sort", sortColumn);
-      if (sortOrder) params.set("order", sortOrder);
-
-      const response = await fetch(
-        `https://yqjugovqhvxoxvrceqqp.supabase.co/functions/v1/get-board-view-data?${params}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
+      const data = await callEdgeFunction<ViewDataResponse>(
+        "get-board-view-data",
+        params
       );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
-      }
-
-      const data: ViewDataResponse = await response.json();
 
       setView(data.view);
       setItems(data.items);
@@ -103,7 +82,6 @@ export function useBoardViewData({
     }
   }, [viewId, page, limit, search, sortColumn, sortOrder, toast]);
 
-  // Refetch when params change
   useEffect(() => {
     if (viewId) {
       fetchData();
