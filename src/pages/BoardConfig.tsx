@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Loader2, AlertCircle, LayoutGrid } from "lucide-react";
+import { Plus, Loader2, AlertCircle, LayoutGrid, ChevronRight, ChevronDown, Info } from "lucide-react";
 
 import { useAuth } from "@/hooks/useAuth";
 import { useBoardConfigs } from "@/hooks/useBoardConfigs";
@@ -8,13 +8,26 @@ import { useOrganizationMembers } from "@/hooks/useOrganizationMembers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { BoardConfigCard } from "@/components/boards/BoardConfigCard";
+import { InactiveBoardCard } from "@/components/boards/InactiveBoardCard";
 import { AddBoardDialog } from "@/components/boards/AddBoardDialog";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export default function BoardConfig() {
   const { memberRole } = useAuth();
-  const { configs, isLoading, deleteConfig, refetch } = useBoardConfigs();
+  const { configs, inactiveConfigs, isLoading, deleteConfig, refetch } = useBoardConfigs();
   const { members } = useOrganizationMembers();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [inactiveExpanded, setInactiveExpanded] = useState(false);
 
   // Owner-only protection
   if (memberRole !== "owner") {
@@ -87,6 +100,46 @@ export default function BoardConfig() {
             />
           ))}
         </div>
+      )}
+
+      {/* Inactive Boards Section */}
+      {inactiveConfigs.length > 0 && (
+        <Collapsible open={inactiveExpanded} onOpenChange={setInactiveExpanded}>
+          <div className="flex items-center gap-2 pt-4 border-t">
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="gap-2 px-2">
+                {inactiveExpanded ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+                <span className="text-muted-foreground">
+                  Boards from Other Accounts ({inactiveConfigs.length})
+                </span>
+              </Button>
+            </CollapsibleTrigger>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p>
+                    These boards were configured with a different Monday.com account.
+                    Switch accounts to manage them.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+          <CollapsibleContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4 opacity-60">
+              {inactiveConfigs.map((config) => (
+                <InactiveBoardCard key={config.id} config={config} />
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       )}
 
       <AddBoardDialog

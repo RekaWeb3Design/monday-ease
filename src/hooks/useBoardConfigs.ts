@@ -17,6 +17,7 @@ interface CreateConfigInput {
 
 interface UseBoardConfigsReturn {
   configs: BoardConfigWithAccess[];
+  inactiveConfigs: BoardConfigWithAccess[];
   isLoading: boolean;
   createConfig: (input: CreateConfigInput) => Promise<boolean>;
   updateConfig: (id: string, updates: Partial<BoardConfig>) => Promise<boolean>;
@@ -29,6 +30,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
   const { integration } = useIntegration();
   const { toast } = useToast();
   const [configs, setConfigs] = useState<BoardConfigWithAccess[]>([]);
+  const [inactiveConfigs, setInactiveConfigs] = useState<BoardConfigWithAccess[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchConfigs = useCallback(async () => {
@@ -91,6 +93,37 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
       }));
 
       setConfigs(configsWithAccess);
+
+      // Fetch inactive configs (different monday_account_id, not null)
+      let inactiveData: BoardConfigWithAccess[] = [];
+      if (integration?.monday_account_id) {
+        const { data: inactiveConfigsData } = await supabase
+          .from("board_configs")
+          .select("*")
+          .eq("organization_id", organization.id)
+          .not("monday_account_id", "is", null)
+          .neq("monday_account_id", integration.monday_account_id)
+          .order("created_at", { ascending: false });
+
+        if (inactiveConfigsData) {
+          inactiveData = inactiveConfigsData.map((config) => ({
+            id: config.id,
+            organization_id: config.organization_id,
+            monday_board_id: config.monday_board_id,
+            board_name: config.board_name,
+            filter_column_id: config.filter_column_id,
+            filter_column_name: config.filter_column_name,
+            filter_column_type: config.filter_column_type,
+            visible_columns: (config.visible_columns as string[]) || [],
+            is_active: config.is_active ?? true,
+            monday_account_id: config.monday_account_id,
+            created_at: config.created_at,
+            updated_at: config.updated_at,
+            memberAccess: [], // No need to load member access for inactive
+          }));
+        }
+      }
+      setInactiveConfigs(inactiveData);
     } catch (err) {
       console.error("Error fetching board configs:", err);
       toast({
@@ -246,6 +279,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
 
   return {
     configs,
+    inactiveConfigs,
     isLoading,
     createConfig,
     updateConfig,
