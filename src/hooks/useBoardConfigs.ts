@@ -33,9 +33,26 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
   const [inactiveConfigs, setInactiveConfigs] = useState<BoardConfigWithAccess[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Helper to map raw config to typed config
+  const mapConfigFields = (config: any): Omit<BoardConfigWithAccess, 'memberAccess'> => ({
+    id: config.id,
+    organization_id: config.organization_id,
+    monday_board_id: config.monday_board_id,
+    board_name: config.board_name,
+    filter_column_id: config.filter_column_id,
+    filter_column_name: config.filter_column_name,
+    filter_column_type: config.filter_column_type,
+    visible_columns: (config.visible_columns as string[]) || [],
+    is_active: config.is_active ?? true,
+    monday_account_id: config.monday_account_id || null,
+    created_at: config.created_at,
+    updated_at: config.updated_at,
+  });
+
   const fetchConfigs = useCallback(async () => {
     if (!organization) {
       setConfigs([]);
+      setInactiveConfigs([]);
       setIsLoading(false);
       return;
     }
@@ -43,88 +60,59 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
     setIsLoading(true);
 
     try {
-      // Build the query
-      let query = supabase
+      // Fetch ALL configs for this organization (no account filter in query)
+      const { data: allConfigsData, error: configsError } = await supabase
         .from("board_configs")
         .select("*")
-        .eq("organization_id", organization.id);
-
-      // Filter by monday_account_id: match current account OR null (legacy)
-      // Note: String values in .or() must be quoted for Supabase to parse correctly
-      if (integration?.monday_account_id) {
-        query = query.or(
-          `monday_account_id.eq."${integration.monday_account_id}",monday_account_id.is.null`
-        );
-      }
-
-      const { data: configsData, error: configsError } = await query
+        .eq("organization_id", organization.id)
         .order("created_at", { ascending: false });
 
       if (configsError) throw configsError;
 
-      // Fetch member access for all configs
-      const configIds = (configsData || []).map((c) => c.id);
-      
+      const allConfigs = allConfigsData || [];
+      const currentAccountId = integration?.monday_account_id;
+
+      // JavaScript filtering - 100% reliable
+      // ACTIVE: monday_account_id is NULL (legacy) OR matches current account
+      const activeConfigsRaw = allConfigs.filter(config => 
+        config.monday_account_id === null || 
+        config.monday_account_id === currentAccountId
+      );
+
+      // INACTIVE: monday_account_id is NOT NULL AND does NOT match current account
+      const inactiveConfigsRaw = allConfigs.filter(config => 
+        config.monday_account_id !== null && 
+        config.monday_account_id !== currentAccountId
+      );
+
+      // Fetch member access for ACTIVE configs only
+      const activeConfigIds = activeConfigsRaw.map(c => c.id);
       let accessData: MemberBoardAccess[] = [];
-      if (configIds.length > 0) {
+      
+      if (activeConfigIds.length > 0) {
         const { data: accessResult, error: accessError } = await supabase
           .from("member_board_access")
           .select("*")
-          .in("board_config_id", configIds);
+          .in("board_config_id", activeConfigIds);
 
         if (accessError) throw accessError;
         accessData = (accessResult || []) as MemberBoardAccess[];
       }
 
-      // Combine configs with their member access
-      const configsWithAccess: BoardConfigWithAccess[] = (configsData || []).map((config) => ({
-        id: config.id,
-        organization_id: config.organization_id,
-        monday_board_id: config.monday_board_id,
-        board_name: config.board_name,
-        filter_column_id: config.filter_column_id,
-        filter_column_name: config.filter_column_name,
-        filter_column_type: config.filter_column_type,
-        visible_columns: (config.visible_columns as string[]) || [],
-        is_active: config.is_active ?? true,
-        monday_account_id: config.monday_account_id || null,
-        created_at: config.created_at,
-        updated_at: config.updated_at,
-        memberAccess: accessData.filter((a) => a.board_config_id === config.id),
+      // Map active configs with member access
+      const activeConfigs: BoardConfigWithAccess[] = activeConfigsRaw.map(config => ({
+        ...mapConfigFields(config),
+        memberAccess: accessData.filter(a => a.board_config_id === config.id),
       }));
 
-      setConfigs(configsWithAccess);
+      // Map inactive configs (no member access needed - read-only)
+      const inactiveConfigsMapped: BoardConfigWithAccess[] = inactiveConfigsRaw.map(config => ({
+        ...mapConfigFields(config),
+        memberAccess: [],
+      }));
 
-      // Fetch inactive configs (different monday_account_id, not null)
-      let inactiveData: BoardConfigWithAccess[] = [];
-      if (integration?.monday_account_id) {
-        const { data: inactiveConfigsData } = await supabase
-          .from("board_configs")
-          .select("*")
-          .eq("organization_id", organization.id)
-          .not("monday_account_id", "is", null)
-          .neq("monday_account_id", integration.monday_account_id)
-          .order("created_at", { ascending: false });
-
-        if (inactiveConfigsData) {
-          inactiveData = inactiveConfigsData.map((config) => ({
-            id: config.id,
-            organization_id: config.organization_id,
-            monday_board_id: config.monday_board_id,
-            board_name: config.board_name,
-            filter_column_id: config.filter_column_id,
-            filter_column_name: config.filter_column_name,
-            filter_column_type: config.filter_column_type,
-            visible_columns: (config.visible_columns as string[]) || [],
-            is_active: config.is_active ?? true,
-            monday_account_id: config.monday_account_id,
-            created_at: config.created_at,
-            updated_at: config.updated_at,
-            memberAccess: [], // No need to load member access for inactive
-          }));
-        }
-      }
-      setInactiveConfigs(inactiveData);
+      setConfigs(activeConfigs);
+      setInactiveConfigs(inactiveConfigsMapped);
     } catch (err) {
       console.error("Error fetching board configs:", err);
       toast({
