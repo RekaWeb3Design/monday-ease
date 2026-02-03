@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Loader2, AlertCircle, LayoutGrid, ChevronRight, ChevronDown, Info } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Plus, Loader2, AlertCircle, LayoutGrid, ChevronRight, ChevronDown, Info, Building2 } from "lucide-react";
 
 import { useAuth } from "@/hooks/useAuth";
 import { useBoardConfigs } from "@/hooks/useBoardConfigs";
@@ -28,6 +28,19 @@ export default function BoardConfig() {
   const { members } = useOrganizationMembers();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [inactiveExpanded, setInactiveExpanded] = useState(false);
+
+  // Group inactive configs by monday_account_id
+  const groupedInactiveConfigs = useMemo(() => {
+    const groups: Record<string, typeof inactiveConfigs> = {};
+    inactiveConfigs.forEach(config => {
+      const accountId = config.monday_account_id || 'unknown';
+      if (!groups[accountId]) {
+        groups[accountId] = [];
+      }
+      groups[accountId].push(config);
+    });
+    return groups;
+  }, [inactiveConfigs]);
 
   // Owner-only protection
   if (memberRole !== "owner") {
@@ -133,9 +146,19 @@ export default function BoardConfig() {
             </TooltipProvider>
           </div>
           <CollapsibleContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4 opacity-60">
-              {inactiveConfigs.map((config) => (
-                <InactiveBoardCard key={config.id} config={config} />
+            <div className="space-y-6 mt-4">
+              {Object.entries(groupedInactiveConfigs).map(([accountId, configsGroup]) => (
+                <div key={accountId} className="space-y-3">
+                  <div className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Building2 className="h-4 w-4" />
+                    Account: {accountId}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-60">
+                    {configsGroup.map(config => (
+                      <InactiveBoardCard key={config.id} config={config} />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           </CollapsibleContent>
