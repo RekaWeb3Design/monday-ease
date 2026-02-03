@@ -1,14 +1,10 @@
 
 
-# Fix Board Config Filtering with JavaScript-Based Approach
+# Add Workspace Names to Board Configurations
 
-## Problem
+## Overview
 
-The Supabase `.or()` query filter is not working correctly, causing boards to appear in both active AND inactive sections simultaneously. This is a critical bug that breaks the account isolation feature.
-
-## Solution
-
-Replace the two separate Supabase queries with a single query that fetches ALL configs, then filter in JavaScript to correctly separate active vs inactive boards.
+Improve UX by displaying human-readable workspace names instead of cryptic account IDs in the Board Configuration page. This includes storing the workspace name with each board config and showing the currently connected account in the page header.
 
 ---
 
@@ -16,222 +12,224 @@ Replace the two separate Supabase queries with a single query that fetches ALL c
 
 | File | Changes |
 |------|---------|
-| `src/hooks/useBoardConfigs.ts` | Rewrite fetchConfigs to fetch all and filter in JS |
-| `src/pages/BoardConfig.tsx` | Add grouping of inactive configs by account ID |
+| **Database Migration** | Add `workspace_name TEXT` column to `board_configs` table |
+| `src/types/index.ts` | Add `workspace_name` field to `BoardConfig` interface |
+| `src/hooks/useBoardConfigs.ts` | Save `workspace_name` when creating configs; include in mapping |
+| `src/pages/BoardConfig.tsx` | Display workspace names in inactive section; show connected account in header |
 
 ---
 
-## 1. Rewrite `useBoardConfigs.ts` - fetchConfigs Function
+## 1. Database Migration
 
-### Current Approach (Broken)
-- Query 1: Uses `.or()` filter for active configs
-- Query 2: Uses `.neq()` filter for inactive configs
-- Both filters appear to malfunction with Supabase
+Add a new column to store the workspace name with each board configuration:
 
-### New Approach (Reliable)
-- Single query: Fetch ALL configs for the organization
-- JavaScript filter: Separate into active vs inactive arrays
-- 100% reliable string comparison in JS
+```sql
+ALTER TABLE public.board_configs 
+ADD COLUMN workspace_name TEXT;
 
-### Key Changes
-
-```typescript
-const fetchConfigs = useCallback(async () => {
-  if (!organization) {
-    setConfigs([]);
-    setInactiveConfigs([]);
-    setIsLoading(false);
-    return;
-  }
-
-  setIsLoading(true);
-
-  try {
-    // Fetch ALL configs for this organization (no account filter in query)
-    const { data: allConfigsData, error: configsError } = await supabase
-      .from("board_configs")
-      .select("*")
-      .eq("organization_id", organization.id)
-      .order("created_at", { ascending: false });
-
-    if (configsError) throw configsError;
-
-    const allConfigs = allConfigsData || [];
-    const currentAccountId = integration?.monday_account_id;
-
-    // JavaScript filtering - 100% reliable
-    // ACTIVE: monday_account_id is NULL (legacy) OR matches current account
-    const activeConfigsRaw = allConfigs.filter(config => 
-      config.monday_account_id === null || 
-      config.monday_account_id === currentAccountId
-    );
-
-    // INACTIVE: monday_account_id is NOT NULL AND does NOT match current account
-    const inactiveConfigsRaw = allConfigs.filter(config => 
-      config.monday_account_id !== null && 
-      config.monday_account_id !== currentAccountId
-    );
-
-    // Fetch member access for ACTIVE configs only
-    const activeConfigIds = activeConfigsRaw.map(c => c.id);
-    let accessData: MemberBoardAccess[] = [];
-    
-    if (activeConfigIds.length > 0) {
-      const { data: accessResult, error: accessError } = await supabase
-        .from("member_board_access")
-        .select("*")
-        .in("board_config_id", activeConfigIds);
-
-      if (accessError) throw accessError;
-      accessData = (accessResult || []) as MemberBoardAccess[];
-    }
-
-    // Map active configs with member access
-    const activeConfigs: BoardConfigWithAccess[] = activeConfigsRaw.map(config => ({
-      ...mapConfigFields(config),
-      memberAccess: accessData.filter(a => a.board_config_id === config.id),
-    }));
-
-    // Map inactive configs (no member access needed - read-only)
-    const inactiveConfigs: BoardConfigWithAccess[] = inactiveConfigsRaw.map(config => ({
-      ...mapConfigFields(config),
-      memberAccess: [],
-    }));
-
-    setConfigs(activeConfigs);
-    setInactiveConfigs(inactiveConfigs);
-  } catch (err) {
-    // ... error handling
-  } finally {
-    setIsLoading(false);
-  }
-}, [organization, integration?.monday_account_id, toast]);
+-- Add comment for documentation
+COMMENT ON COLUMN public.board_configs.workspace_name IS 
+  'Monday.com workspace name at the time of board configuration creation';
 ```
 
-### Helper Function (Extract for DRY)
+---
+
+## 2. Update Type Definition
+
+### `src/types/index.ts` - BoardConfig Interface
+
+Add the new field to the interface:
 
 ```typescript
-// Helper to map raw config to typed config
+export interface BoardConfig {
+  id: string;
+  organization_id: string;
+  monday_board_id: string;
+  board_name: string;
+  filter_column_id: string | null;
+  filter_column_name: string | null;
+  filter_column_type: string | null;
+  visible_columns: string[];
+  is_active: boolean;
+  monday_account_id: string | null;
+  workspace_name: string | null;  // NEW FIELD
+  created_at: string | null;
+  updated_at: string | null;
+}
+```
+
+---
+
+## 3. Update `useBoardConfigs.ts`
+
+### 3a. Update `mapConfigFields` Helper
+
+Include `workspace_name` in the field mapping:
+
+```typescript
 const mapConfigFields = (config: any): Omit<BoardConfigWithAccess, 'memberAccess'> => ({
-  id: config.id,
-  organization_id: config.organization_id,
-  monday_board_id: config.monday_board_id,
-  board_name: config.board_name,
-  filter_column_id: config.filter_column_id,
-  filter_column_name: config.filter_column_name,
-  filter_column_type: config.filter_column_type,
-  visible_columns: (config.visible_columns as string[]) || [],
-  is_active: config.is_active ?? true,
-  monday_account_id: config.monday_account_id,
+  // ... existing fields
+  monday_account_id: config.monday_account_id || null,
+  workspace_name: config.workspace_name || null,  // ADD THIS
   created_at: config.created_at,
   updated_at: config.updated_at,
 });
 ```
 
----
+### 3b. Update `createConfig` Function
 
-## 2. Update `BoardConfig.tsx` - Group Inactive by Account
-
-### Add useMemo Import and Grouping Logic
+Save the workspace name from the current integration when creating a new board config:
 
 ```typescript
-import { useState, useMemo } from "react";
-import { Building2 } from "lucide-react";
-
-// Group inactive configs by monday_account_id
-const groupedInactiveConfigs = useMemo(() => {
-  const groups: Record<string, BoardConfigWithAccess[]> = {};
-  inactiveConfigs.forEach(config => {
-    const accountId = config.monday_account_id || 'unknown';
-    if (!groups[accountId]) {
-      groups[accountId] = [];
-    }
-    groups[accountId].push(config);
-  });
-  return groups;
-}, [inactiveConfigs]);
+const { data: configData, error: configError } = await supabase
+  .from("board_configs")
+  .insert({
+    organization_id: organization.id,
+    monday_board_id: input.monday_board_id,
+    board_name: input.board_name,
+    filter_column_id: input.filter_column_id,
+    filter_column_name: input.filter_column_name,
+    filter_column_type: input.filter_column_type,
+    visible_columns: input.visible_columns,
+    monday_account_id: integration?.monday_account_id || null,
+    workspace_name: integration?.workspace_name || null,  // ADD THIS
+    is_active: true,
+  })
+  .select()
+  .single();
 ```
 
-### Update Collapsible Content Rendering
+---
+
+## 4. Update `BoardConfig.tsx`
+
+### 4a. Import useIntegration Hook
+
+Add the hook import to access current connection info:
 
 ```typescript
-<CollapsibleContent>
-  <div className="space-y-6 mt-4">
-    {Object.entries(groupedInactiveConfigs).map(([accountId, configsGroup]) => (
-      <div key={accountId} className="space-y-3">
-        <div className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-          <Building2 className="h-4 w-4" />
-          Account: {accountId}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-60">
-          {configsGroup.map(config => (
-            <InactiveBoardCard key={config.id} config={config} />
-          ))}
-        </div>
+import { useIntegration } from "@/hooks/useIntegration";
+```
+
+### 4b. Add Hook Usage
+
+Inside the component, get the integration data:
+
+```typescript
+const { integration } = useIntegration();
+```
+
+### 4c. Add "Connected to" Badge in Header
+
+Display the currently connected workspace in the page header:
+
+```typescript
+{/* Header */}
+<div className="flex items-center justify-between">
+  <div>
+    <h1 className="text-2xl font-bold">Board Configuration</h1>
+    <p className="text-muted-foreground">
+      Configure Monday.com boards and member access
+    </p>
+    {/* Connected workspace indicator */}
+    {integration?.workspace_name && (
+      <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
+        <Link className="h-4 w-4 text-[#01cb72]" />
+        <span>Connected to:</span>
+        <span className="font-medium text-foreground">
+          {integration.workspace_name}
+        </span>
       </div>
-    ))}
+    )}
   </div>
-</CollapsibleContent>
+  <Button onClick={() => setAddDialogOpen(true)}>
+    <Plus className="mr-2 h-4 w-4" />
+    Add Board
+  </Button>
+</div>
+```
+
+### 4d. Update Inactive Boards Grouping Display
+
+Show workspace name instead of account ID in the inactive section:
+
+```typescript
+{Object.entries(groupedInactiveConfigs).map(([accountId, configsGroup]) => (
+  <div key={accountId} className="space-y-3">
+    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+      <Building2 className="h-4 w-4" />
+      {/* Show workspace name if available, fall back to account ID */}
+      {configsGroup[0]?.workspace_name || `Account: ${accountId}`}
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-60">
+      {configsGroup.map(config => (
+        <InactiveBoardCard key={config.id} config={config} />
+      ))}
+    </div>
+  </div>
+))}
+```
+
+### 4e. Add Link Icon Import
+
+Add the Link icon import for the connected workspace indicator:
+
+```typescript
+import { Plus, Loader2, AlertCircle, LayoutGrid, ChevronRight, ChevronDown, Info, Building2, Link } from "lucide-react";
 ```
 
 ---
 
-## Data Flow Diagram
+## Visual Preview
+
+### Header with Connected Workspace
 
 ```text
-                    FETCH ALL CONFIGS
-                           │
-    supabase.from("board_configs")
-    .eq("organization_id", org.id)
-    .order("created_at", desc)
-                           │
-                           ▼
-                    allConfigs[]
-                           │
-        ┌──────────────────┴──────────────────┐
-        │                                      │
-        ▼                                      ▼
-  JS Filter: ACTIVE                    JS Filter: INACTIVE
-  monday_account_id = null             monday_account_id != null
-  OR = current                         AND != current
-        │                                      │
-        ▼                                      ▼
-  activeConfigsRaw[]                   inactiveConfigsRaw[]
-        │                                      │
-        │                                      ▼
-        │                              Group by account_id
-        ▼                                      │
-  Fetch memberAccess[]                         │
-        │                                      │
-        ▼                                      ▼
-  setConfigs()                         setInactiveConfigs()
+┌────────────────────────────────────────────────────────────┐
+│  Board Configuration                        [+ Add Board]  │
+│  Configure Monday.com boards and member access             │
+│  🔗 Connected to: MondayEase                               │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Inactive Boards Section with Workspace Names
+
+```text
+┌────────────────────────────────────────────────────────────┐
+│  ▶ Boards from Other Accounts (2)  ⓘ                      │
+├────────────────────────────────────────────────────────────┤
+│  🏢 Thewowstudio                                           │
+│  ┌──────────────┐                                          │
+│  │ Tasks        │  (grayed out)                            │
+│  │ Other Account│                                          │
+│  └──────────────┘                                          │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Why This Works
+## Data Flow
 
-1. **Single Source of Truth**: One query returns ALL configs - no chance of overlap
-2. **Reliable JS Filtering**: JavaScript `===` comparison is 100% reliable for strings
-3. **Mutually Exclusive**: The filter conditions are logically exclusive:
-   - Active: `null OR matches`
-   - Inactive: `NOT null AND NOT matches`
-4. **Clear Account Grouping**: Users can see which boards belong to which account
+```text
+When creating board config:
+┌─────────────────────────────────┐
+│ integration.monday_account_id   │ ──► saved to board_configs.monday_account_id
+│ integration.workspace_name      │ ──► saved to board_configs.workspace_name
+└─────────────────────────────────┘
+
+When displaying inactive boards:
+┌─────────────────────────────────┐
+│ config.workspace_name exists?   │
+│   YES ──► Show "Thewowstudio"   │
+│   NO  ──► Show "Account: 12345" │  (fallback for legacy configs)
+└─────────────────────────────────┘
+```
 
 ---
 
-## File Changes Summary
+## Backwards Compatibility
 
-### `src/hooks/useBoardConfigs.ts`
-- Remove `.or()` and `.neq()` Supabase filters
-- Fetch all configs in single query
-- Add `mapConfigFields` helper function
-- Filter active/inactive in JavaScript
-- Only fetch member access for active configs
-
-### `src/pages/BoardConfig.tsx`
-- Add `useMemo` import
-- Add `Building2` icon import
-- Add `groupedInactiveConfigs` memo
-- Update CollapsibleContent to render grouped accounts
+- Existing board configs will have `workspace_name = NULL`
+- The UI falls back to displaying the account ID when no workspace name is stored
+- New board configs will automatically capture the workspace name from the current integration
 
