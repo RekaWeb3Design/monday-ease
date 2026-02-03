@@ -99,6 +99,7 @@ export interface BoardConfig {
   filter_column_type: string | null;
   visible_columns: string[];
   is_active: boolean;
+  monday_account_id: string | null;
   created_at: string | null;
   updated_at: string | null;
 }

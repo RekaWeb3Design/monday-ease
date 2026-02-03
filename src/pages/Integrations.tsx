@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { useIntegration } from "@/hooks/useIntegration";
 import { useMondayOAuth } from "@/hooks/useMondayOAuth";
 import { useDisconnectIntegration } from "@/hooks/useDisconnectIntegration";
+import { useBoardConfigs } from "@/hooks/useBoardConfigs";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,16 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import mondayLogo from "@/assets/monday-logo.png";
 
 function SlackIcon({ className }: { className?: string }) {
@@ -43,14 +54,29 @@ export default function Integrations() {
   const { integration, isLoading, isConnected, refetch } = useIntegration();
   const { connectMonday, isConnecting } = useMondayOAuth();
   const { disconnect, isDisconnecting } = useDisconnectIntegration();
+  const { configs } = useBoardConfigs();
   const { toast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const [installComplete, setInstallComplete] = useState(false);
+  const [showSwitchWarning, setShowSwitchWarning] = useState(false);
+
+  // Count configs that will be hidden when switching accounts
+  const linkedConfigCount = configs.filter(
+    (c) => c.monday_account_id === integration?.monday_account_id
+  ).length;
 
   const handleDisconnect = async () => {
     const success = await disconnect('monday');
     if (success) {
       refetch();
+    }
+  };
+
+  const handleSwitchAccountClick = () => {
+    if (linkedConfigCount > 0) {
+      setShowSwitchWarning(true);
+    } else {
+      handleSwitchAccount();
     }
   };
 
@@ -60,6 +86,11 @@ export default function Integrations() {
       setInstallComplete(false);
       refetch();
     }
+  };
+
+  const confirmSwitchAccount = async () => {
+    setShowSwitchWarning(false);
+    await handleSwitchAccount();
   };
 
   // Handle OAuth callback results from URL params
@@ -163,7 +194,7 @@ export default function Integrations() {
               <button
                 type="button"
                 className="text-sm text-muted-foreground hover:text-primary hover:underline transition-colors w-full text-center"
-                onClick={handleSwitchAccount}
+                onClick={handleSwitchAccountClick}
                 disabled={isDisconnecting}
               >
                 Connect a different Monday.com account
@@ -286,6 +317,28 @@ export default function Integrations() {
           </Card>
         </div>
       </div>
+
+      {/* Switch Account Warning Dialog */}
+      <AlertDialog open={showSwitchWarning} onOpenChange={setShowSwitchWarning}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Switch Monday.com Account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have {linkedConfigCount} board configuration{linkedConfigCount !== 1 ? 's' : ''} linked 
+              to the current Monday.com account.
+              <br /><br />
+              If you connect a different account, these boards will no longer be 
+              accessible until you reconnect the original account.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSwitchAccount}>
+              Switch Account
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
