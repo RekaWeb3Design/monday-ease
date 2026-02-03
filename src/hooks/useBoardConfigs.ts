@@ -15,12 +15,20 @@ interface CreateConfigInput {
   memberMappings: { member_id: string; filter_value: string }[];
 }
 
+interface UpdateConfigInput {
+  filter_column_id?: string | null;
+  filter_column_name?: string | null;
+  filter_column_type?: string | null;
+  visible_columns?: string[];
+  memberMappings?: { member_id: string; filter_value: string }[];
+}
+
 interface UseBoardConfigsReturn {
   configs: BoardConfigWithAccess[];
   inactiveConfigs: BoardConfigWithAccess[];
   isLoading: boolean;
   createConfig: (input: CreateConfigInput) => Promise<boolean>;
-  updateConfig: (id: string, updates: Partial<BoardConfig>) => Promise<boolean>;
+  updateConfig: (id: string, updates: UpdateConfigInput) => Promise<boolean>;
   deleteConfig: (id: string) => Promise<boolean>;
   refetch: () => Promise<void>;
 }
@@ -202,14 +210,62 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
   );
 
   const updateConfig = useCallback(
-    async (id: string, updates: Partial<BoardConfig>): Promise<boolean> => {
+    async (id: string, updates: UpdateConfigInput): Promise<boolean> => {
       try {
-        const { error } = await supabase
-          .from("board_configs")
-          .update(updates)
-          .eq("id", id);
+        // Build the config update object (only include defined fields)
+        const configUpdate: Partial<BoardConfig> = {};
+        if (updates.filter_column_id !== undefined) {
+          configUpdate.filter_column_id = updates.filter_column_id;
+        }
+        if (updates.filter_column_name !== undefined) {
+          configUpdate.filter_column_name = updates.filter_column_name;
+        }
+        if (updates.filter_column_type !== undefined) {
+          configUpdate.filter_column_type = updates.filter_column_type;
+        }
+        if (updates.visible_columns !== undefined) {
+          configUpdate.visible_columns = updates.visible_columns;
+        }
 
-        if (error) throw error;
+        // Update board_configs table if there are config changes
+        if (Object.keys(configUpdate).length > 0) {
+          const { error: configError } = await supabase
+            .from("board_configs")
+            .update(configUpdate)
+            .eq("id", id);
+
+          if (configError) throw configError;
+        }
+
+        // Handle member mappings if provided (delete + insert pattern)
+        if (updates.memberMappings !== undefined) {
+          // Delete existing mappings
+          const { error: deleteError } = await supabase
+            .from("member_board_access")
+            .delete()
+            .eq("board_config_id", id);
+
+          if (deleteError) throw deleteError;
+
+          // Insert new mappings
+          if (updates.memberMappings.length > 0) {
+            const mappings = updates.memberMappings
+              .filter((m) => m.filter_value.trim() !== "")
+              .map((m) => ({
+                board_config_id: id,
+                member_id: m.member_id,
+                filter_value: m.filter_value.trim(),
+              }));
+
+            if (mappings.length > 0) {
+              const { error: insertError } = await supabase
+                .from("member_board_access")
+                .insert(mappings);
+
+              if (insertError) throw insertError;
+            }
+          }
+        }
 
         toast({
           title: "Board Updated",
