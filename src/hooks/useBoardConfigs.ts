@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useIntegration } from "@/hooks/useIntegration";
 import { useToast } from "@/hooks/use-toast";
 import type { BoardConfig, MemberBoardAccess, BoardConfigWithAccess } from "@/types";
 
@@ -25,6 +26,7 @@ interface UseBoardConfigsReturn {
 
 export function useBoardConfigs(): UseBoardConfigsReturn {
   const { organization } = useAuth();
+  const { integration } = useIntegration();
   const { toast } = useToast();
   const [configs, setConfigs] = useState<BoardConfigWithAccess[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,11 +41,20 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
     setIsLoading(true);
 
     try {
-      // Fetch board configs
-      const { data: configsData, error: configsError } = await supabase
+      // Build the query
+      let query = supabase
         .from("board_configs")
         .select("*")
-        .eq("organization_id", organization.id)
+        .eq("organization_id", organization.id);
+
+      // Filter by monday_account_id: match current account OR null (legacy)
+      if (integration?.monday_account_id) {
+        query = query.or(
+          `monday_account_id.eq.${integration.monday_account_id},monday_account_id.is.null`
+        );
+      }
+
+      const { data: configsData, error: configsError } = await query
         .order("created_at", { ascending: false });
 
       if (configsError) throw configsError;
@@ -73,6 +84,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
         filter_column_type: config.filter_column_type,
         visible_columns: (config.visible_columns as string[]) || [],
         is_active: config.is_active ?? true,
+        monday_account_id: config.monday_account_id || null,
         created_at: config.created_at,
         updated_at: config.updated_at,
         memberAccess: accessData.filter((a) => a.board_config_id === config.id),
@@ -89,7 +101,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [organization, toast]);
+  }, [organization, integration?.monday_account_id, toast]);
 
   useEffect(() => {
     fetchConfigs();
@@ -118,6 +130,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
             filter_column_name: input.filter_column_name,
             filter_column_type: input.filter_column_type,
             visible_columns: input.visible_columns,
+            monday_account_id: integration?.monday_account_id || null,
             is_active: true,
           })
           .select()
@@ -161,7 +174,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
         return false;
       }
     },
-    [organization, toast, fetchConfigs]
+    [organization, integration?.monday_account_id, toast, fetchConfigs]
   );
 
   const updateConfig = useCallback(

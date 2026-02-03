@@ -23,6 +23,7 @@ export type Database = {
           filter_column_type: string | null
           id: string
           is_active: boolean | null
+          monday_account_id: string | null
           monday_board_id: string
           organization_id: string
           updated_at: string | null
@@ -36,6 +37,7 @@ export type Database = {
           filter_column_type?: string | null
           id?: string
           is_active?: boolean | null
+          monday_account_id?: string | null
           monday_board_id: string
           organization_id: string
           updated_at?: string | null
@@ -49,6 +51,7 @@ export type Database = {
           filter_column_type?: string | null
           id?: string
           is_active?: boolean | null
+          monday_account_id?: string | null
           monday_board_id?: string
           organization_id?: string
           updated_at?: string | null
