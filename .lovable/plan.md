@@ -1,298 +1,250 @@
 
 
-# Add Monday Account Tracking & Filtering
+# Add Inactive Boards Section to Board Configuration Page
 
 ## Overview
 
-This plan extends the previous requirements with an additional filter in `fetchConfigs()` to only show board configs that belong to the currently connected Monday.com account (or legacy configs with null account ID).
+Add a collapsible "Boards from Other Accounts" section at the bottom of the Board Configuration page that displays board configs from different Monday.com accounts. These boards will be shown in a read-only, grayed-out state to help users track all their configurations across multiple accounts.
 
 ---
 
-## Complete Changes Summary
+## Changes Summary
 
 | File | Changes |
 |------|---------|
-| **Database** | Add `monday_account_id TEXT` column to `board_configs` |
-| `src/types/index.ts` | Add `monday_account_id` to `BoardConfig` and `BoardConfigWithAccess` interfaces |
-| `src/hooks/useBoardConfigs.ts` | 1. Import `useIntegration` hook 2. Filter `fetchConfigs()` by account ID 3. Save `monday_account_id` on create |
-| `src/pages/Integrations.tsx` | Add warning dialog when switching accounts |
+| `src/hooks/useBoardConfigs.ts` | Add `inactiveConfigs` array and fetch logic for other-account boards |
+| `src/pages/BoardConfig.tsx` | Add collapsible section for inactive boards with info tooltip |
+| `src/components/boards/InactiveBoardCard.tsx` | New component for displaying read-only inactive board cards |
 
 ---
 
-## Database Migration
+## 1. Update `useBoardConfigs.ts` Hook
 
-```sql
-ALTER TABLE public.board_configs 
-ADD COLUMN monday_account_id TEXT;
-```
-
----
-
-## 1. Types Update (`src/types/index.ts`)
-
-Add `monday_account_id` to both interfaces:
+### Add `inactiveConfigs` to State and Return Type
 
 ```typescript
-export interface BoardConfig {
-  id: string;
-  organization_id: string;
-  monday_board_id: string;
-  board_name: string;
-  filter_column_id: string | null;
-  filter_column_name: string | null;
-  filter_column_type: string | null;
-  visible_columns: string[];
-  is_active: boolean;
-  monday_account_id: string | null; // NEW
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-export interface BoardConfigWithAccess extends BoardConfig {
-  memberAccess: MemberBoardAccess[];
+interface UseBoardConfigsReturn {
+  configs: BoardConfigWithAccess[];
+  inactiveConfigs: BoardConfigWithAccess[];  // NEW
+  isLoading: boolean;
+  // ... rest unchanged
 }
 ```
 
----
+### Fetch Inactive Configs (Two Queries Approach)
 
-## 2. Filter & Save in `useBoardConfigs.ts`
-
-### Import `useIntegration`
+After fetching active configs, add a second query for inactive configs:
 
 ```typescript
-import { useIntegration } from "@/hooks/useIntegration";
-```
+// Fetch inactive configs (different monday_account_id, not null)
+let inactiveData: BoardConfigWithAccess[] = [];
+if (integration?.monday_account_id) {
+  const { data: inactiveConfigsData } = await supabase
+    .from("board_configs")
+    .select("*")
+    .eq("organization_id", organization.id)
+    .not("monday_account_id", "is", null)
+    .neq("monday_account_id", integration.monday_account_id)
+    .order("created_at", { ascending: false });
 
-### Add Integration to Hook
-
-```typescript
-export function useBoardConfigs(): UseBoardConfigsReturn {
-  const { organization } = useAuth();
-  const { toast } = useToast();
-  const { integration } = useIntegration(); // NEW
-  const [configs, setConfigs] = useState<BoardConfigWithAccess[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-```
-
-### Update `fetchConfigs()` Query (Lines 43-47)
-
-Add `.or()` filter to only show configs matching the current account or legacy null values:
-
-```typescript
-const fetchConfigs = useCallback(async () => {
-  if (!organization) {
-    setConfigs([]);
-    setIsLoading(false);
-    return;
+  if (inactiveConfigsData) {
+    inactiveData = inactiveConfigsData.map((config) => ({
+      id: config.id,
+      organization_id: config.organization_id,
+      monday_board_id: config.monday_board_id,
+      board_name: config.board_name,
+      filter_column_id: config.filter_column_id,
+      filter_column_name: config.filter_column_name,
+      filter_column_type: config.filter_column_type,
+      visible_columns: (config.visible_columns as string[]) || [],
+      is_active: config.is_active ?? true,
+      monday_account_id: config.monday_account_id,
+      created_at: config.created_at,
+      updated_at: config.updated_at,
+      memberAccess: [], // No need to load member access for inactive
+    }));
   }
-
-  setIsLoading(true);
-
-  try {
-    // Build the query
-    let query = supabase
-      .from("board_configs")
-      .select("*")
-      .eq("organization_id", organization.id);
-    
-    // Filter by monday_account_id: match current account OR null (legacy)
-    if (integration?.monday_account_id) {
-      query = query.or(
-        `monday_account_id.eq.${integration.monday_account_id},monday_account_id.is.null`
-      );
-    }
-    
-    const { data: configsData, error: configsError } = await query
-      .order("created_at", { ascending: false });
-
-    if (configsError) throw configsError;
-    // ... rest of the function
-```
-
-### Update `createConfig()` to Save `monday_account_id` (Lines 111-122)
-
-```typescript
-const { data: configData, error: configError } = await supabase
-  .from("board_configs")
-  .insert({
-    organization_id: organization.id,
-    monday_board_id: input.monday_board_id,
-    board_name: input.board_name,
-    filter_column_id: input.filter_column_id,
-    filter_column_name: input.filter_column_name,
-    filter_column_type: input.filter_column_type,
-    visible_columns: input.visible_columns,
-    monday_account_id: integration?.monday_account_id || null, // NEW
-    is_active: true,
-  })
-  .select()
-  .single();
-```
-
-### Update `fetchConfigs` Dependencies
-
-```typescript
-}, [organization, integration?.monday_account_id, toast]);
-```
-
-### Update Mapping in `configsWithAccess` (Lines 66-79)
-
-Add the new field to the mapped object:
-
-```typescript
-const configsWithAccess: BoardConfigWithAccess[] = (configsData || []).map((config) => ({
-  // ... existing fields
-  monday_account_id: config.monday_account_id || null, // NEW
-  memberAccess: accessData.filter((a) => a.board_config_id === config.id),
-}));
+}
+setInactiveConfigs(inactiveData);
 ```
 
 ---
 
-## 3. Warning Dialog in `Integrations.tsx`
+## 2. Create `InactiveBoardCard.tsx` Component
 
-### Add Imports
+A simplified, read-only version of `BoardConfigCard`:
 
-```typescript
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { useBoardConfigs } from "@/hooks/useBoardConfigs";
-```
-
-### Add State and Logic
+### Props
 
 ```typescript
-const { configs } = useBoardConfigs();
-const [showSwitchWarning, setShowSwitchWarning] = useState(false);
-
-// Count configs that will be hidden when switching accounts
-const linkedConfigCount = configs.filter(
-  (c) => c.monday_account_id === integration?.monday_account_id
-).length;
-
-const handleSwitchAccountClick = () => {
-  if (linkedConfigCount > 0) {
-    setShowSwitchWarning(true);
-  } else {
-    handleSwitchAccount();
-  }
-};
-
-const confirmSwitchAccount = async () => {
-  setShowSwitchWarning(false);
-  await handleSwitchAccount();
-};
+interface InactiveBoardCardProps {
+  config: BoardConfigWithAccess;
+}
 ```
 
-### Update "Connect a different account" Link
+### Key Features
 
-Change from direct `handleSwitchAccount` to `handleSwitchAccountClick`:
+- Grayed out styling (`opacity-50`)
+- No edit/delete buttons
+- Shows board name with "Other Account" badge
+- Tooltip explaining the board belongs to a different account
 
-```typescript
-<button
-  type="button"
-  className="text-sm text-muted-foreground hover:text-primary hover:underline transition-colors w-full text-center"
-  onClick={handleSwitchAccountClick}  // Changed from handleSwitchAccount
->
-  Connect a different Monday.com account
-</button>
-```
-
-### Add AlertDialog Component
-
-```typescript
-<AlertDialog open={showSwitchWarning} onOpenChange={setShowSwitchWarning}>
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>Switch Monday.com Account?</AlertDialogTitle>
-      <AlertDialogDescription>
-        You have {linkedConfigCount} board configuration{linkedConfigCount !== 1 ? 's' : ''} linked 
-        to the current Monday.com account.
-        <br /><br />
-        If you connect a different account, these boards will no longer be 
-        accessible until you reconnect the original account.
-      </AlertDialogDescription>
-    </AlertDialogHeader>
-    <AlertDialogFooter>
-      <AlertDialogCancel>Cancel</AlertDialogCancel>
-      <AlertDialogAction onClick={confirmSwitchAccount}>
-        Switch Account
-      </AlertDialogAction>
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
-```
-
----
-
-## Data Flow Diagram
+### Component Structure
 
 ```text
-                     CREATING NEW CONFIG
-                     
-User creates board config
-         │
-         ▼
-useBoardConfigs.createConfig()
-         │
-         ├── Gets integration.monday_account_id
-         │
-         ▼
-Saves to board_configs table with monday_account_id
-         
+┌─────────────────────────────────────────┐
+│  [Board Name]              [Other Account] │
+│  ────────────────────────────────────── │
+│  Filter Column: Person                  │
+│  Visible Columns: 5 selected            │
+│  Members with Access: 3                 │
+│                                          │
+│  ℹ️ Connect to this account to manage    │
+└─────────────────────────────────────────┘
+```
 
-                     FETCHING CONFIGS
-                     
-useBoardConfigs.fetchConfigs()
-         │
-         ├── Gets integration.monday_account_id
-         │
-         ▼
-Query with filter:
-  monday_account_id = current_account_id
-  OR monday_account_id IS NULL
-         │
-         ▼
-Only shows relevant configs
-         
+---
 
-                     SWITCHING ACCOUNTS
-                     
-User clicks "Connect different account"
-         │
-         ▼
-Check linkedConfigCount > 0?
-         │
-    ┌────┴────┐
-   YES       NO
-    │         │
-    ▼         ▼
-Show      Direct
-Warning   Disconnect
-Dialog        │
-    │         │
-[Cancel] [Confirm]
-    │         │
-    └────┬────┘
-         │
-         ▼
-Disconnect & Reset UI
+## 3. Update `BoardConfig.tsx` Page
+
+### Add State for Collapsible
+
+```typescript
+const [inactiveExpanded, setInactiveExpanded] = useState(false);
+```
+
+### Add Collapsible Section at Bottom
+
+Only render if `inactiveConfigs.length > 0`:
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  ▶ Boards from Other Accounts (2)  ⓘ                          │
+│     [tooltip: These boards were configured with a different    │
+│      Monday.com account. Switch accounts to manage them.]      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Component Code
+
+```typescript
+{inactiveConfigs.length > 0 && (
+  <Collapsible open={inactiveExpanded} onOpenChange={setInactiveExpanded}>
+    <div className="flex items-center gap-2">
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" className="gap-2">
+          {inactiveExpanded ? <ChevronDown /> : <ChevronRight />}
+          <span>Boards from Other Accounts ({inactiveConfigs.length})</span>
+        </Button>
+      </CollapsibleTrigger>
+      <Tooltip>
+        <TooltipTrigger>
+          <Info className="h-4 w-4 text-muted-foreground" />
+        </TooltipTrigger>
+        <TooltipContent>
+          These boards were configured with a different Monday.com account.
+          Switch accounts to manage them.
+        </TooltipContent>
+      </Tooltip>
+    </div>
+    <CollapsibleContent>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4 opacity-60">
+        {inactiveConfigs.map((config) => (
+          <InactiveBoardCard key={config.id} config={config} />
+        ))}
+      </div>
+    </CollapsibleContent>
+  </Collapsible>
+)}
+```
+
+---
+
+## Visual Design
+
+### Active vs Inactive Cards Comparison
+
+```text
+ACTIVE BOARD CARD                    INACTIVE BOARD CARD
+┌────────────────────┐               ┌────────────────────┐
+│ [Tasks]  [Active]  │               │ [Tasks] [Other]    │ ← opacity-60
+│         [✏️] [🗑️]  │               │                    │ ← no action buttons
+├────────────────────┤               ├────────────────────┤
+│ Filter: Person     │               │ Filter: Person     │
+│ Columns: 5         │               │ Columns: 5         │
+│ Members: 3         │               │ Members: 3         │
+│                    │               │                    │
+│ ▼ Member Mappings  │               │ ℹ️ Connect to      │
+└────────────────────┘               │   manage this board│
+                                     └────────────────────┘
+```
+
+---
+
+## Data Flow
+
+```text
+useBoardConfigs hook
+        │
+        ├── Query 1: Active configs
+        │   WHERE (monday_account_id = current OR null)
+        │   ──► configs[]
+        │
+        └── Query 2: Inactive configs
+            WHERE monday_account_id NOT NULL
+            AND monday_account_id != current
+            ──► inactiveConfigs[]
+
+BoardConfig.tsx
+        │
+        ├── Render configs with BoardConfigCard (editable)
+        │
+        └── Render inactiveConfigs with InactiveBoardCard (read-only)
+            (inside Collapsible, collapsed by default)
+```
+
+---
+
+## New Files
+
+### `src/components/boards/InactiveBoardCard.tsx`
+
+Full component with:
+- Card styling with `opacity-50` or similar muted appearance
+- Badge showing "Other Account" 
+- Display of board name, filter column, visible columns count
+- Small info text at bottom: "Connect to this Monday.com account to manage this board"
+- No action buttons (edit/delete)
+
+---
+
+## Imports to Add
+
+### `BoardConfig.tsx`
+
+```typescript
+import { ChevronRight, ChevronDown, Info } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { InactiveBoardCard } from "@/components/boards/InactiveBoardCard";
 ```
 
 ---
 
 ## Technical Notes
 
-1. **Backward Compatibility**: Configs without `monday_account_id` (null) will always be visible - they're treated as legacy configs
-2. **Query Safety**: The `.or()` filter only applies when there's a valid `monday_account_id` from the integration
-3. **Re-fetch Trigger**: When integration changes (connect/disconnect), configs will automatically re-fetch due to dependency on `integration?.monday_account_id`
-4. **Future Migrations**: If needed, existing configs could be backfilled with account IDs via a migration script
+1. **Separate Query**: Inactive configs are fetched separately to keep the logic clean and avoid complex OR conditions
+2. **No Member Access**: We skip loading `member_board_access` for inactive configs since they're read-only
+3. **Collapsed by Default**: The section is collapsed by default to not clutter the UI
+4. **Hidden When Empty**: The entire section is hidden if there are no inactive configs
+5. **Workspace Name**: We could enhance this later by storing/displaying the workspace name from the original integration
 
