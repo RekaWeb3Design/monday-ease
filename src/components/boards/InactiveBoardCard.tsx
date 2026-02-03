@@ -1,13 +1,29 @@
-import { Info, Filter, Columns, Users } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Filter, Columns, Users, Trash2, ArrowRightLeft } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import type { BoardConfigWithAccess } from "@/types";
 
 interface InactiveBoardCardProps {
   config: BoardConfigWithAccess;
+  onDelete: () => void;
 }
 
-export function InactiveBoardCard({ config }: InactiveBoardCardProps) {
+export function InactiveBoardCard({ config, onDelete }: InactiveBoardCardProps) {
+  const navigate = useNavigate();
+
   return (
     <Card className="overflow-hidden border-dashed">
       <CardHeader className="pb-3">
@@ -18,6 +34,35 @@ export function InactiveBoardCard({ config }: InactiveBoardCardProps) {
               Other Account
             </Badge>
           </div>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-60 hover:opacity-100"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Board Configuration?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete the "{config.board_name}" configuration.
+                  This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={onDelete}
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -45,10 +90,15 @@ export function InactiveBoardCard({ config }: InactiveBoardCardProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
-          <Info className="h-3.5 w-3.5 flex-shrink-0" />
-          <span>Connect to this Monday.com account to manage this board</span>
-        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+          onClick={() => navigate("/integrations")}
+        >
+          <ArrowRightLeft className="h-3.5 w-3.5" />
+          Switch to {config.workspace_name || "this account"}
+        </Button>
       </CardContent>
     </Card>
   );
