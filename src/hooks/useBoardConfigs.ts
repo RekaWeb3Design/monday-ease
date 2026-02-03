@@ -45,6 +45,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
     visible_columns: (config.visible_columns as string[]) || [],
     is_active: config.is_active ?? true,
     monday_account_id: config.monday_account_id || null,
+    workspace_name: config.workspace_name || null,
     created_at: config.created_at,
     updated_at: config.updated_at,
   });
@@ -141,7 +142,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
       }
 
       try {
-        // Insert board config
+        // Insert board config with workspace_name for display purposes
         const { data: configData, error: configError } = await supabase
           .from("board_configs")
           .insert({
@@ -153,6 +154,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
             filter_column_type: input.filter_column_type,
             visible_columns: input.visible_columns,
             monday_account_id: integration?.monday_account_id || null,
+            workspace_name: integration?.workspace_name || null,
             is_active: true,
           })
           .select()
