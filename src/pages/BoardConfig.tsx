@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { BoardConfigCard } from "@/components/boards/BoardConfigCard";
 import { InactiveBoardCard } from "@/components/boards/InactiveBoardCard";
 import { AddBoardDialog } from "@/components/boards/AddBoardDialog";
+import { EditBoardDialog } from "@/components/boards/EditBoardDialog";
 import {
   Collapsible,
   CollapsibleContent,
@@ -23,6 +24,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { BoardConfigWithAccess } from "@/types";
 
 export default function BoardConfig() {
   const { memberRole } = useAuth();
@@ -30,6 +32,7 @@ export default function BoardConfig() {
   const { members } = useOrganizationMembers();
   const { integration } = useIntegration();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [editingConfig, setEditingConfig] = useState<BoardConfigWithAccess | null>(null);
   const [inactiveExpanded, setInactiveExpanded] = useState(false);
 
   // Group inactive configs by monday_account_id
@@ -118,10 +121,7 @@ export default function BoardConfig() {
               key={config.id}
               config={config}
               members={members}
-              onEdit={() => {
-                // TODO: Implement edit dialog
-                console.log("Edit config:", config.id);
-              }}
+              onEdit={() => setEditingConfig(config)}
               onDelete={() => deleteConfig(config.id)}
             />
           ))}
@@ -188,6 +188,18 @@ export default function BoardConfig() {
         onOpenChange={setAddDialogOpen}
         onSuccess={refetch}
       />
+
+      {editingConfig && (
+        <EditBoardDialog
+          open={!!editingConfig}
+          onOpenChange={(open) => !open && setEditingConfig(null)}
+          config={editingConfig}
+          onSuccess={() => {
+            setEditingConfig(null);
+            refetch();
+          }}
+        />
+      )}
     </div>
   );
 }
