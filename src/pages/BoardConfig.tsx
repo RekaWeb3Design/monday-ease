@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Plus, Loader2, AlertCircle, LayoutGrid, ChevronRight, ChevronDown, Info, Building2, Link } from "lucide-react";
+import { Plus, Loader2, AlertCircle, LayoutGrid, ChevronRight, ChevronDown, Info, Building2 } from "lucide-react";
 
 import { useAuth } from "@/hooks/useAuth";
 import { useBoardConfigs } from "@/hooks/useBoardConfigs";
@@ -8,6 +8,7 @@ import { useIntegration } from "@/hooks/useIntegration";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { BoardConfigCard } from "@/components/boards/BoardConfigCard";
 import { InactiveBoardCard } from "@/components/boards/InactiveBoardCard";
 import { AddBoardDialog } from "@/components/boards/AddBoardDialog";
@@ -80,13 +81,13 @@ export default function BoardConfig() {
           </p>
           {/* Connected workspace indicator */}
           {integration?.workspace_name && (
-            <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
-              <Link className="h-4 w-4 text-[#01cb72]" />
-              <span>Connected to:</span>
-              <span className="font-medium text-foreground">
-                {integration.workspace_name}
-              </span>
-            </div>
+            <Badge
+              variant="outline"
+              className="mt-2 bg-primary/10 text-primary border-primary/20 gap-2"
+            >
+              <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+              Connected to: {integration.workspace_name}
+            </Badge>
           )}
         </div>
         <Button onClick={() => setAddDialogOpen(true)}>
@@ -168,7 +169,11 @@ export default function BoardConfig() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-60">
                     {configsGroup.map(config => (
-                      <InactiveBoardCard key={config.id} config={config} />
+                      <InactiveBoardCard
+                        key={config.id}
+                        config={config}
+                        onDelete={() => deleteConfig(config.id)}
+                      />
                     ))}
                   </div>
                 </div>
