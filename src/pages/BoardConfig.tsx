@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
-import { Plus, Loader2, AlertCircle, LayoutGrid, ChevronRight, ChevronDown, Info, Building2 } from "lucide-react";
+import { Plus, Loader2, AlertCircle, LayoutGrid, ChevronRight, ChevronDown, Info, Building2, Link } from "lucide-react";
 
 import { useAuth } from "@/hooks/useAuth";
 import { useBoardConfigs } from "@/hooks/useBoardConfigs";
 import { useOrganizationMembers } from "@/hooks/useOrganizationMembers";
+import { useIntegration } from "@/hooks/useIntegration";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +27,7 @@ export default function BoardConfig() {
   const { memberRole } = useAuth();
   const { configs, inactiveConfigs, isLoading, deleteConfig, refetch } = useBoardConfigs();
   const { members } = useOrganizationMembers();
+  const { integration } = useIntegration();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [inactiveExpanded, setInactiveExpanded] = useState(false);
 
@@ -76,6 +78,16 @@ export default function BoardConfig() {
           <p className="text-muted-foreground">
             Configure Monday.com boards and member access
           </p>
+          {/* Connected workspace indicator */}
+          {integration?.workspace_name && (
+            <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
+              <Link className="h-4 w-4 text-[#01cb72]" />
+              <span>Connected to:</span>
+              <span className="font-medium text-foreground">
+                {integration.workspace_name}
+              </span>
+            </div>
+          )}
         </div>
         <Button onClick={() => setAddDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
@@ -151,7 +163,8 @@ export default function BoardConfig() {
                 <div key={accountId} className="space-y-3">
                   <div className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                     <Building2 className="h-4 w-4" />
-                    Account: {accountId}
+                    {/* Show workspace name if available, fall back to account ID */}
+                    {configsGroup[0]?.workspace_name || `Account: ${accountId}`}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-60">
                     {configsGroup.map(config => (

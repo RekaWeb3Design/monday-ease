@@ -28,6 +28,7 @@ export type Database = {
           organization_id: string
           updated_at: string | null
           visible_columns: Json | null
+          workspace_name: string | null
         }
         Insert: {
           board_name: string
@@ -42,6 +43,7 @@ export type Database = {
           organization_id: string
           updated_at?: string | null
           visible_columns?: Json | null
+          workspace_name?: string | null
         }
         Update: {
           board_name?: string
@@ -56,6 +58,7 @@ export type Database = {
           organization_id?: string
           updated_at?: string | null
           visible_columns?: Json | null
+          workspace_name?: string | null
         }
         Relationships: [
           {
