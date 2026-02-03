@@ -1,9 +1,9 @@
 
-# UX Improvements for Board Configuration Page
+# Edit Board Configuration Feature
 
 ## Overview
 
-Add three UX improvements to enhance the Board Configuration page: a quick switch button for inactive boards, a delete option for inactive boards, and a more prominent "Connected to" indicator.
+Implement an Edit Board dialog that allows users to modify existing board configurations, including filter column, visible columns, and member mappings.
 
 ---
 
@@ -11,228 +11,243 @@ Add three UX improvements to enhance the Board Configuration page: a quick switc
 
 | File | Changes |
 |------|---------|
-| `src/components/boards/InactiveBoardCard.tsx` | Add "Switch to [workspace]" button with navigation; Add delete button with confirmation dialog |
-| `src/pages/BoardConfig.tsx` | Pass `deleteConfig` to `InactiveBoardCard`; Update header with prominent Badge component |
+| `src/components/boards/EditBoardDialog.tsx` | NEW: Create edit dialog component with pre-populated values |
+| `src/hooks/useBoardConfigs.ts` | Enhance `updateConfig` to support member mappings |
+| `src/pages/BoardConfig.tsx` | Wire up EditBoardDialog with state management |
 
 ---
 
-## 1. Quick Switch Button on Inactive Boards
+## 1. Create EditBoardDialog Component
 
-### `InactiveBoardCard.tsx`
+### `src/components/boards/EditBoardDialog.tsx` (NEW FILE)
 
-Replace the static info message with a clickable button that navigates to the integrations page.
+A dialog component similar to AddBoardDialog but for editing existing configurations. Since the user may want to quickly tweak settings, I'll use a simplified single-form approach rather than a 3-step wizard.
 
-**Changes:**
-- Add `useNavigate` from `react-router-dom`
-- Add `ArrowRightLeft` icon from `lucide-react`
-- Add `Button` component import
-- Replace the info div with an actionable button
-
+**Props:**
 ```tsx
-// Before
-<div className="flex items-center gap-2 rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
-  <Info className="h-3.5 w-3.5 flex-shrink-0" />
-  <span>Connect to this Monday.com account to manage this board</span>
-</div>
+interface EditBoardDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  config: BoardConfigWithAccess;
+  onSuccess: () => void;
+}
+```
 
-// After
-<Button 
-  variant="ghost" 
-  size="sm" 
-  className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
-  onClick={() => navigate("/integrations")}
->
-  <ArrowRightLeft className="h-3.5 w-3.5" />
-  Switch to {config.workspace_name || "this account"}
-</Button>
+**Key Features:**
+- Fetches fresh columns from Monday.com API for the specific board
+- Pre-populates filter column dropdown with current selection
+- Pre-populates visible columns checkboxes with current selection
+- Pre-populates member mappings with current values from `config.memberAccess`
+- Detects person-type columns for smart user picker vs text input
+- Uses the same member mapping UI as AddBoardDialog (combobox for person columns, text input otherwise)
+
+**Layout:**
+```text
+┌─────────────────────────────────────────────────┐
+│  Edit Board Configuration                        │
+│  [Board Name]                                    │
+├─────────────────────────────────────────────────┤
+│                                                  │
+│  Filter Column (Optional)                        │
+│  [Dropdown: current selection ▼]                 │
+│                                                  │
+│  Visible Columns (Optional)                      │
+│  ┌────────────────────────────────────────────┐ │
+│  │ ☑ Name                                      │ │
+│  │ ☐ Status                                    │ │
+│  │ ☑ Person                                    │ │
+│  │ ☐ Date                                      │ │
+│  └────────────────────────────────────────────┘ │
+│                                                  │
+│  Member Mappings                                 │
+│  ┌────────────────────────────────────────────┐ │
+│  │ Member 1: [current value    ▼]              │ │
+│  │ Member 2: [current value    ▼]              │ │
+│  └────────────────────────────────────────────┘ │
+│                                                  │
+├─────────────────────────────────────────────────┤
+│               [Cancel]  [Save Changes]           │
+└─────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. Delete Button for Inactive Boards
+## 2. Enhance useBoardConfigs Hook
 
-### `InactiveBoardCard.tsx`
+### `src/hooks/useBoardConfigs.ts`
 
-Add a delete button with confirmation dialog in the card header, styled subtly to match the inactive state.
+Enhance the `updateConfig` function to support member mappings updates.
 
 **Changes:**
-- Add `AlertDialog` components import
-- Add `Trash2` icon import
-- Update props interface to accept `onDelete` callback
-- Add delete button in header with confirmation dialog
+1. Create new interface for update input with member mappings
+2. Modify `updateConfig` to handle member mappings:
+   - Delete existing member_board_access records for the config
+   - Insert new member mappings
 
 ```tsx
-interface InactiveBoardCardProps {
-  config: BoardConfigWithAccess;
-  onDelete: () => void;  // NEW PROP
+interface UpdateConfigInput {
+  filter_column_id?: string | null;
+  filter_column_name?: string | null;
+  filter_column_type?: string | null;
+  visible_columns?: string[];
+  memberMappings?: { member_id: string; filter_value: string }[];
 }
 
-// In CardHeader, add delete button
-<div className="flex items-start justify-between">
-  <div className="space-y-1">
-    <CardTitle className="text-lg">{config.board_name}</CardTitle>
-    <Badge variant="secondary" className="bg-muted text-muted-foreground">
-      Other Account
-    </Badge>
-  </div>
-  {/* NEW: Delete button */}
-  <AlertDialog>
-    <AlertDialogTrigger asChild>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-60 hover:opacity-100"
-      >
-        <Trash2 className="h-4 w-4" />
-      </Button>
-    </AlertDialogTrigger>
-    <AlertDialogContent>
-      <AlertDialogHeader>
-        <AlertDialogTitle>Delete Board Configuration?</AlertDialogTitle>
-        <AlertDialogDescription>
-          This will permanently delete the "{config.board_name}" configuration. 
-          This action cannot be undone.
-        </AlertDialogDescription>
-      </AlertDialogHeader>
-      <AlertDialogFooter>
-        <AlertDialogCancel>Cancel</AlertDialogCancel>
-        <AlertDialogAction
-          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          onClick={onDelete}
-        >
-          Delete
-        </AlertDialogAction>
-      </AlertDialogFooter>
-    </AlertDialogContent>
-  </AlertDialog>
-</div>
-```
+const updateConfig = async (id: string, updates: UpdateConfigInput): Promise<boolean> => {
+  try {
+    // 1. Update board_configs table (filter column, visible columns)
+    const { error: configError } = await supabase
+      .from("board_configs")
+      .update({
+        filter_column_id: updates.filter_column_id,
+        filter_column_name: updates.filter_column_name,
+        filter_column_type: updates.filter_column_type,
+        visible_columns: updates.visible_columns,
+      })
+      .eq("id", id);
 
-### `BoardConfig.tsx`
+    if (configError) throw configError;
 
-Pass the `deleteConfig` function to each `InactiveBoardCard`.
+    // 2. If memberMappings provided, replace all existing mappings
+    if (updates.memberMappings !== undefined) {
+      // Delete existing mappings
+      await supabase
+        .from("member_board_access")
+        .delete()
+        .eq("board_config_id", id);
 
-```tsx
-// Before
-<InactiveBoardCard key={config.id} config={config} />
+      // Insert new mappings
+      if (updates.memberMappings.length > 0) {
+        const mappings = updates.memberMappings
+          .filter(m => m.filter_value.trim() !== "")
+          .map(m => ({
+            board_config_id: id,
+            member_id: m.member_id,
+            filter_value: m.filter_value.trim(),
+          }));
 
-// After
-<InactiveBoardCard 
-  key={config.id} 
-  config={config} 
-  onDelete={() => deleteConfig(config.id)} 
-/>
+        if (mappings.length > 0) {
+          const { error: mappingError } = await supabase
+            .from("member_board_access")
+            .insert(mappings);
+
+          if (mappingError) throw mappingError;
+        }
+      }
+    }
+
+    toast({ title: "Board Updated", description: "..." });
+    await fetchConfigs();
+    return true;
+  } catch (err) {
+    // error handling
+  }
+};
 ```
 
 ---
 
-## 3. Prominent "Connected to" Header Badge
+## 3. Wire Up EditBoardDialog in BoardConfig.tsx
 
-### `BoardConfig.tsx`
+### `src/pages/BoardConfig.tsx`
 
-Replace the plain text indicator with a visually prominent Badge with a pulse animation.
+Add state and dialog rendering for the edit functionality.
 
 **Changes:**
-- Import `Badge` component
-- Replace text-based indicator with styled Badge
+1. Add state for selected config to edit
+2. Wire up `onEdit` callback to open dialog
+3. Render EditBoardDialog
 
 ```tsx
-// Before
-{integration?.workspace_name && (
-  <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
-    <Link className="h-4 w-4 text-[#01cb72]" />
-    <span>Connected to:</span>
-    <span className="font-medium text-foreground">
-      {integration.workspace_name}
-    </span>
-  </div>
+// Add state
+const [editingConfig, setEditingConfig] = useState<BoardConfigWithAccess | null>(null);
+
+// Update BoardConfigCard
+<BoardConfigCard
+  key={config.id}
+  config={config}
+  members={members}
+  onEdit={() => setEditingConfig(config)}
+  onDelete={() => deleteConfig(config.id)}
+/>
+
+// Add EditBoardDialog
+{editingConfig && (
+  <EditBoardDialog
+    open={!!editingConfig}
+    onOpenChange={(open) => !open && setEditingConfig(null)}
+    config={editingConfig}
+    onSuccess={() => {
+      setEditingConfig(null);
+      refetch();
+    }}
+  />
 )}
-
-// After
-{integration?.workspace_name && (
-  <Badge 
-    variant="outline" 
-    className="mt-2 bg-green-50 text-green-700 border-green-200 gap-2"
-  >
-    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-    Connected to: {integration.workspace_name}
-  </Badge>
-)}
 ```
 
 ---
 
-## Visual Preview
+## Technical Implementation Details
 
-### Inactive Board Card (After)
-
-```text
-┌────────────────────────────────────────┐
-│  Tasks                          [🗑]   │  ← Delete button (subtle)
-│  ┌──────────────┐                      │
-│  │ Other Account│                      │
-│  └──────────────┘                      │
-│                                        │
-│  Filter Column: Person                 │
-│  Visible Columns: 5 selected           │
-│  Members with Access: 3                │
-│                                        │
-│  [↔ Switch to Thewowstudio]            │  ← Clickable button
-└────────────────────────────────────────┘
-```
-
-### Header (After)
-
-```text
-┌────────────────────────────────────────────────────────────┐
-│  Board Configuration                        [+ Add Board]  │
-│  Configure Monday.com boards and member access             │
-│  ┌─────────────────────────────────────┐                   │
-│  │ 🟢 Connected to: MondayEase         │  ← Badge with    │
-│  └─────────────────────────────────────┘    pulse dot     │
-└────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Technical Details
-
-### New Imports for InactiveBoardCard.tsx
+### EditBoardDialog Internal State
 
 ```tsx
-import { useNavigate } from "react-router-dom";
-import { Info, Filter, Columns, Users, Trash2, ArrowRightLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+// Fetch board columns for dropdown
+const { boards, fetchBoards } = useMondayBoards();
+const selectedBoard = boards.find(b => b.id === config.monday_board_id);
+
+// State initialized from config
+const [filterColumnId, setFilterColumnId] = useState(config.filter_column_id || 'none');
+const [visibleColumns, setVisibleColumns] = useState<string[]>(config.visible_columns);
+const [memberMappings, setMemberMappings] = useState<Record<string, string>>(() => {
+  // Initialize from config.memberAccess
+  const initial: Record<string, string> = {};
+  config.memberAccess.forEach(access => {
+    initial[access.member_id] = access.filter_value;
+  });
+  return initial;
+});
 ```
 
-### New Import for BoardConfig.tsx
+### Loading Board Columns
 
+When dialog opens, fetch boards from Monday.com to get fresh column data:
 ```tsx
-import { Badge } from "@/components/ui/badge";
+useEffect(() => {
+  if (open && boards.length === 0) {
+    fetchBoards();
+  }
+}, [open, boards.length]);
 ```
+
+The columns are needed to:
+- Populate the filter column dropdown with current options
+- Show column type information
+- Determine if person-type column for smart mapping UI
+
+### Edge Case: Board No Longer Exists
+
+If the board is no longer accessible in Monday.com:
+- Show warning message
+- Disable filter column and visible columns editing
+- Still allow member mapping changes (since these are local)
 
 ---
 
-## Files Modified
+## Files Summary
 
-1. **`src/components/boards/InactiveBoardCard.tsx`** - Major update
-   - Add navigation hook and delete functionality
-   - New props interface with `onDelete`
-   - Replace info message with switch button
-   - Add delete button with AlertDialog
+1. **`src/components/boards/EditBoardDialog.tsx`** - NEW
+   - Single-form edit dialog (not wizard)
+   - Pre-populates all fields from config
+   - Fetches fresh board columns from Monday.com
+   - Person column detection for smart user picker
+   - Uses same patterns as AddBoardDialog
 
-2. **`src/pages/BoardConfig.tsx`** - Minor update
-   - Import Badge component
-   - Update header with prominent Badge
-   - Pass `onDelete` prop to InactiveBoardCard
+2. **`src/hooks/useBoardConfigs.ts`** - MODIFIED
+   - Enhanced `updateConfig` to accept member mappings
+   - Delete + insert pattern for atomic member mapping updates
+
+3. **`src/pages/BoardConfig.tsx`** - MODIFIED
+   - Add `editingConfig` state
+   - Wire up onEdit callback
+   - Render EditBoardDialog component
