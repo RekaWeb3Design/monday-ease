@@ -1,10 +1,14 @@
 
 
-# Add Inactive Boards Section to Board Configuration Page
+# Fix Board Config Filtering with JavaScript-Based Approach
 
-## Overview
+## Problem
 
-Add a collapsible "Boards from Other Accounts" section at the bottom of the Board Configuration page that displays board configs from different Monday.com accounts. These boards will be shown in a read-only, grayed-out state to help users track all their configurations across multiple accounts.
+The Supabase `.or()` query filter is not working correctly, causing boards to appear in both active AND inactive sections simultaneously. This is a critical bug that breaks the account isolation feature.
+
+## Solution
+
+Replace the two separate Supabase queries with a single query that fetches ALL configs, then filter in JavaScript to correctly separate active vs inactive boards.
 
 ---
 
@@ -12,239 +16,222 @@ Add a collapsible "Boards from Other Accounts" section at the bottom of the Boar
 
 | File | Changes |
 |------|---------|
-| `src/hooks/useBoardConfigs.ts` | Add `inactiveConfigs` array and fetch logic for other-account boards |
-| `src/pages/BoardConfig.tsx` | Add collapsible section for inactive boards with info tooltip |
-| `src/components/boards/InactiveBoardCard.tsx` | New component for displaying read-only inactive board cards |
+| `src/hooks/useBoardConfigs.ts` | Rewrite fetchConfigs to fetch all and filter in JS |
+| `src/pages/BoardConfig.tsx` | Add grouping of inactive configs by account ID |
 
 ---
 
-## 1. Update `useBoardConfigs.ts` Hook
+## 1. Rewrite `useBoardConfigs.ts` - fetchConfigs Function
 
-### Add `inactiveConfigs` to State and Return Type
+### Current Approach (Broken)
+- Query 1: Uses `.or()` filter for active configs
+- Query 2: Uses `.neq()` filter for inactive configs
+- Both filters appear to malfunction with Supabase
 
-```typescript
-interface UseBoardConfigsReturn {
-  configs: BoardConfigWithAccess[];
-  inactiveConfigs: BoardConfigWithAccess[];  // NEW
-  isLoading: boolean;
-  // ... rest unchanged
-}
-```
+### New Approach (Reliable)
+- Single query: Fetch ALL configs for the organization
+- JavaScript filter: Separate into active vs inactive arrays
+- 100% reliable string comparison in JS
 
-### Fetch Inactive Configs (Two Queries Approach)
-
-After fetching active configs, add a second query for inactive configs:
+### Key Changes
 
 ```typescript
-// Fetch inactive configs (different monday_account_id, not null)
-let inactiveData: BoardConfigWithAccess[] = [];
-if (integration?.monday_account_id) {
-  const { data: inactiveConfigsData } = await supabase
-    .from("board_configs")
-    .select("*")
-    .eq("organization_id", organization.id)
-    .not("monday_account_id", "is", null)
-    .neq("monday_account_id", integration.monday_account_id)
-    .order("created_at", { ascending: false });
-
-  if (inactiveConfigsData) {
-    inactiveData = inactiveConfigsData.map((config) => ({
-      id: config.id,
-      organization_id: config.organization_id,
-      monday_board_id: config.monday_board_id,
-      board_name: config.board_name,
-      filter_column_id: config.filter_column_id,
-      filter_column_name: config.filter_column_name,
-      filter_column_type: config.filter_column_type,
-      visible_columns: (config.visible_columns as string[]) || [],
-      is_active: config.is_active ?? true,
-      monday_account_id: config.monday_account_id,
-      created_at: config.created_at,
-      updated_at: config.updated_at,
-      memberAccess: [], // No need to load member access for inactive
-    }));
+const fetchConfigs = useCallback(async () => {
+  if (!organization) {
+    setConfigs([]);
+    setInactiveConfigs([]);
+    setIsLoading(false);
+    return;
   }
-}
-setInactiveConfigs(inactiveData);
+
+  setIsLoading(true);
+
+  try {
+    // Fetch ALL configs for this organization (no account filter in query)
+    const { data: allConfigsData, error: configsError } = await supabase
+      .from("board_configs")
+      .select("*")
+      .eq("organization_id", organization.id)
+      .order("created_at", { ascending: false });
+
+    if (configsError) throw configsError;
+
+    const allConfigs = allConfigsData || [];
+    const currentAccountId = integration?.monday_account_id;
+
+    // JavaScript filtering - 100% reliable
+    // ACTIVE: monday_account_id is NULL (legacy) OR matches current account
+    const activeConfigsRaw = allConfigs.filter(config => 
+      config.monday_account_id === null || 
+      config.monday_account_id === currentAccountId
+    );
+
+    // INACTIVE: monday_account_id is NOT NULL AND does NOT match current account
+    const inactiveConfigsRaw = allConfigs.filter(config => 
+      config.monday_account_id !== null && 
+      config.monday_account_id !== currentAccountId
+    );
+
+    // Fetch member access for ACTIVE configs only
+    const activeConfigIds = activeConfigsRaw.map(c => c.id);
+    let accessData: MemberBoardAccess[] = [];
+    
+    if (activeConfigIds.length > 0) {
+      const { data: accessResult, error: accessError } = await supabase
+        .from("member_board_access")
+        .select("*")
+        .in("board_config_id", activeConfigIds);
+
+      if (accessError) throw accessError;
+      accessData = (accessResult || []) as MemberBoardAccess[];
+    }
+
+    // Map active configs with member access
+    const activeConfigs: BoardConfigWithAccess[] = activeConfigsRaw.map(config => ({
+      ...mapConfigFields(config),
+      memberAccess: accessData.filter(a => a.board_config_id === config.id),
+    }));
+
+    // Map inactive configs (no member access needed - read-only)
+    const inactiveConfigs: BoardConfigWithAccess[] = inactiveConfigsRaw.map(config => ({
+      ...mapConfigFields(config),
+      memberAccess: [],
+    }));
+
+    setConfigs(activeConfigs);
+    setInactiveConfigs(inactiveConfigs);
+  } catch (err) {
+    // ... error handling
+  } finally {
+    setIsLoading(false);
+  }
+}, [organization, integration?.monday_account_id, toast]);
+```
+
+### Helper Function (Extract for DRY)
+
+```typescript
+// Helper to map raw config to typed config
+const mapConfigFields = (config: any): Omit<BoardConfigWithAccess, 'memberAccess'> => ({
+  id: config.id,
+  organization_id: config.organization_id,
+  monday_board_id: config.monday_board_id,
+  board_name: config.board_name,
+  filter_column_id: config.filter_column_id,
+  filter_column_name: config.filter_column_name,
+  filter_column_type: config.filter_column_type,
+  visible_columns: (config.visible_columns as string[]) || [],
+  is_active: config.is_active ?? true,
+  monday_account_id: config.monday_account_id,
+  created_at: config.created_at,
+  updated_at: config.updated_at,
+});
 ```
 
 ---
 
-## 2. Create `InactiveBoardCard.tsx` Component
+## 2. Update `BoardConfig.tsx` - Group Inactive by Account
 
-A simplified, read-only version of `BoardConfigCard`:
-
-### Props
+### Add useMemo Import and Grouping Logic
 
 ```typescript
-interface InactiveBoardCardProps {
-  config: BoardConfigWithAccess;
-}
+import { useState, useMemo } from "react";
+import { Building2 } from "lucide-react";
+
+// Group inactive configs by monday_account_id
+const groupedInactiveConfigs = useMemo(() => {
+  const groups: Record<string, BoardConfigWithAccess[]> = {};
+  inactiveConfigs.forEach(config => {
+    const accountId = config.monday_account_id || 'unknown';
+    if (!groups[accountId]) {
+      groups[accountId] = [];
+    }
+    groups[accountId].push(config);
+  });
+  return groups;
+}, [inactiveConfigs]);
 ```
 
-### Key Features
-
-- Grayed out styling (`opacity-50`)
-- No edit/delete buttons
-- Shows board name with "Other Account" badge
-- Tooltip explaining the board belongs to a different account
-
-### Component Structure
-
-```text
-┌─────────────────────────────────────────┐
-│  [Board Name]              [Other Account] │
-│  ────────────────────────────────────── │
-│  Filter Column: Person                  │
-│  Visible Columns: 5 selected            │
-│  Members with Access: 3                 │
-│                                          │
-│  ℹ️ Connect to this account to manage    │
-└─────────────────────────────────────────┘
-```
-
----
-
-## 3. Update `BoardConfig.tsx` Page
-
-### Add State for Collapsible
+### Update Collapsible Content Rendering
 
 ```typescript
-const [inactiveExpanded, setInactiveExpanded] = useState(false);
-```
-
-### Add Collapsible Section at Bottom
-
-Only render if `inactiveConfigs.length > 0`:
-
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│  ▶ Boards from Other Accounts (2)  ⓘ                          │
-│     [tooltip: These boards were configured with a different    │
-│      Monday.com account. Switch accounts to manage them.]      │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Component Code
-
-```typescript
-{inactiveConfigs.length > 0 && (
-  <Collapsible open={inactiveExpanded} onOpenChange={setInactiveExpanded}>
-    <div className="flex items-center gap-2">
-      <CollapsibleTrigger asChild>
-        <Button variant="ghost" className="gap-2">
-          {inactiveExpanded ? <ChevronDown /> : <ChevronRight />}
-          <span>Boards from Other Accounts ({inactiveConfigs.length})</span>
-        </Button>
-      </CollapsibleTrigger>
-      <Tooltip>
-        <TooltipTrigger>
-          <Info className="h-4 w-4 text-muted-foreground" />
-        </TooltipTrigger>
-        <TooltipContent>
-          These boards were configured with a different Monday.com account.
-          Switch accounts to manage them.
-        </TooltipContent>
-      </Tooltip>
-    </div>
-    <CollapsibleContent>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4 opacity-60">
-        {inactiveConfigs.map((config) => (
-          <InactiveBoardCard key={config.id} config={config} />
-        ))}
+<CollapsibleContent>
+  <div className="space-y-6 mt-4">
+    {Object.entries(groupedInactiveConfigs).map(([accountId, configsGroup]) => (
+      <div key={accountId} className="space-y-3">
+        <div className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+          <Building2 className="h-4 w-4" />
+          Account: {accountId}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-60">
+          {configsGroup.map(config => (
+            <InactiveBoardCard key={config.id} config={config} />
+          ))}
+        </div>
       </div>
-    </CollapsibleContent>
-  </Collapsible>
-)}
+    ))}
+  </div>
+</CollapsibleContent>
 ```
 
 ---
 
-## Visual Design
-
-### Active vs Inactive Cards Comparison
+## Data Flow Diagram
 
 ```text
-ACTIVE BOARD CARD                    INACTIVE BOARD CARD
-┌────────────────────┐               ┌────────────────────┐
-│ [Tasks]  [Active]  │               │ [Tasks] [Other]    │ ← opacity-60
-│         [✏️] [🗑️]  │               │                    │ ← no action buttons
-├────────────────────┤               ├────────────────────┤
-│ Filter: Person     │               │ Filter: Person     │
-│ Columns: 5         │               │ Columns: 5         │
-│ Members: 3         │               │ Members: 3         │
-│                    │               │                    │
-│ ▼ Member Mappings  │               │ ℹ️ Connect to      │
-└────────────────────┘               │   manage this board│
-                                     └────────────────────┘
+                    FETCH ALL CONFIGS
+                           │
+    supabase.from("board_configs")
+    .eq("organization_id", org.id)
+    .order("created_at", desc)
+                           │
+                           ▼
+                    allConfigs[]
+                           │
+        ┌──────────────────┴──────────────────┐
+        │                                      │
+        ▼                                      ▼
+  JS Filter: ACTIVE                    JS Filter: INACTIVE
+  monday_account_id = null             monday_account_id != null
+  OR = current                         AND != current
+        │                                      │
+        ▼                                      ▼
+  activeConfigsRaw[]                   inactiveConfigsRaw[]
+        │                                      │
+        │                                      ▼
+        │                              Group by account_id
+        ▼                                      │
+  Fetch memberAccess[]                         │
+        │                                      │
+        ▼                                      ▼
+  setConfigs()                         setInactiveConfigs()
 ```
 
 ---
 
-## Data Flow
+## Why This Works
 
-```text
-useBoardConfigs hook
-        │
-        ├── Query 1: Active configs
-        │   WHERE (monday_account_id = current OR null)
-        │   ──► configs[]
-        │
-        └── Query 2: Inactive configs
-            WHERE monday_account_id NOT NULL
-            AND monday_account_id != current
-            ──► inactiveConfigs[]
-
-BoardConfig.tsx
-        │
-        ├── Render configs with BoardConfigCard (editable)
-        │
-        └── Render inactiveConfigs with InactiveBoardCard (read-only)
-            (inside Collapsible, collapsed by default)
-```
+1. **Single Source of Truth**: One query returns ALL configs - no chance of overlap
+2. **Reliable JS Filtering**: JavaScript `===` comparison is 100% reliable for strings
+3. **Mutually Exclusive**: The filter conditions are logically exclusive:
+   - Active: `null OR matches`
+   - Inactive: `NOT null AND NOT matches`
+4. **Clear Account Grouping**: Users can see which boards belong to which account
 
 ---
 
-## New Files
+## File Changes Summary
 
-### `src/components/boards/InactiveBoardCard.tsx`
+### `src/hooks/useBoardConfigs.ts`
+- Remove `.or()` and `.neq()` Supabase filters
+- Fetch all configs in single query
+- Add `mapConfigFields` helper function
+- Filter active/inactive in JavaScript
+- Only fetch member access for active configs
 
-Full component with:
-- Card styling with `opacity-50` or similar muted appearance
-- Badge showing "Other Account" 
-- Display of board name, filter column, visible columns count
-- Small info text at bottom: "Connect to this Monday.com account to manage this board"
-- No action buttons (edit/delete)
-
----
-
-## Imports to Add
-
-### `BoardConfig.tsx`
-
-```typescript
-import { ChevronRight, ChevronDown, Info } from "lucide-react";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { InactiveBoardCard } from "@/components/boards/InactiveBoardCard";
-```
-
----
-
-## Technical Notes
-
-1. **Separate Query**: Inactive configs are fetched separately to keep the logic clean and avoid complex OR conditions
-2. **No Member Access**: We skip loading `member_board_access` for inactive configs since they're read-only
-3. **Collapsed by Default**: The section is collapsed by default to not clutter the UI
-4. **Hidden When Empty**: The entire section is hidden if there are no inactive configs
-5. **Workspace Name**: We could enhance this later by storing/displaying the workspace name from the original integration
+### `src/pages/BoardConfig.tsx`
+- Add `useMemo` import
+- Add `Building2` icon import
+- Add `groupedInactiveConfigs` memo
+- Update CollapsibleContent to render grouped accounts
 
