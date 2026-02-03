@@ -50,9 +50,10 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
         .eq("organization_id", organization.id);
 
       // Filter by monday_account_id: match current account OR null (legacy)
+      // Note: String values in .or() must be quoted for Supabase to parse correctly
       if (integration?.monday_account_id) {
         query = query.or(
-          `monday_account_id.eq.${integration.monday_account_id},monday_account_id.is.null`
+          `monday_account_id.eq."${integration.monday_account_id}",monday_account_id.is.null`
         );
       }
 
