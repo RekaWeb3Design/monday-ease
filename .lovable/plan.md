@@ -1,10 +1,9 @@
 
-
-# Add Workspace Names to Board Configurations
+# UX Improvements for Board Configuration Page
 
 ## Overview
 
-Improve UX by displaying human-readable workspace names instead of cryptic account IDs in the Board Configuration page. This includes storing the workspace name with each board config and showing the currently connected account in the page header.
+Add three UX improvements to enhance the Board Configuration page: a quick switch button for inactive boards, a delete option for inactive boards, and a more prominent "Connected to" indicator.
 
 ---
 
@@ -12,224 +11,228 @@ Improve UX by displaying human-readable workspace names instead of cryptic accou
 
 | File | Changes |
 |------|---------|
-| **Database Migration** | Add `workspace_name TEXT` column to `board_configs` table |
-| `src/types/index.ts` | Add `workspace_name` field to `BoardConfig` interface |
-| `src/hooks/useBoardConfigs.ts` | Save `workspace_name` when creating configs; include in mapping |
-| `src/pages/BoardConfig.tsx` | Display workspace names in inactive section; show connected account in header |
+| `src/components/boards/InactiveBoardCard.tsx` | Add "Switch to [workspace]" button with navigation; Add delete button with confirmation dialog |
+| `src/pages/BoardConfig.tsx` | Pass `deleteConfig` to `InactiveBoardCard`; Update header with prominent Badge component |
 
 ---
 
-## 1. Database Migration
+## 1. Quick Switch Button on Inactive Boards
 
-Add a new column to store the workspace name with each board configuration:
+### `InactiveBoardCard.tsx`
 
-```sql
-ALTER TABLE public.board_configs 
-ADD COLUMN workspace_name TEXT;
+Replace the static info message with a clickable button that navigates to the integrations page.
 
--- Add comment for documentation
-COMMENT ON COLUMN public.board_configs.workspace_name IS 
-  'Monday.com workspace name at the time of board configuration creation';
+**Changes:**
+- Add `useNavigate` from `react-router-dom`
+- Add `ArrowRightLeft` icon from `lucide-react`
+- Add `Button` component import
+- Replace the info div with an actionable button
+
+```tsx
+// Before
+<div className="flex items-center gap-2 rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
+  <Info className="h-3.5 w-3.5 flex-shrink-0" />
+  <span>Connect to this Monday.com account to manage this board</span>
+</div>
+
+// After
+<Button 
+  variant="ghost" 
+  size="sm" 
+  className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+  onClick={() => navigate("/integrations")}
+>
+  <ArrowRightLeft className="h-3.5 w-3.5" />
+  Switch to {config.workspace_name || "this account"}
+</Button>
 ```
 
 ---
 
-## 2. Update Type Definition
+## 2. Delete Button for Inactive Boards
 
-### `src/types/index.ts` - BoardConfig Interface
+### `InactiveBoardCard.tsx`
 
-Add the new field to the interface:
+Add a delete button with confirmation dialog in the card header, styled subtly to match the inactive state.
 
-```typescript
-export interface BoardConfig {
-  id: string;
-  organization_id: string;
-  monday_board_id: string;
-  board_name: string;
-  filter_column_id: string | null;
-  filter_column_name: string | null;
-  filter_column_type: string | null;
-  visible_columns: string[];
-  is_active: boolean;
-  monday_account_id: string | null;
-  workspace_name: string | null;  // NEW FIELD
-  created_at: string | null;
-  updated_at: string | null;
+**Changes:**
+- Add `AlertDialog` components import
+- Add `Trash2` icon import
+- Update props interface to accept `onDelete` callback
+- Add delete button in header with confirmation dialog
+
+```tsx
+interface InactiveBoardCardProps {
+  config: BoardConfigWithAccess;
+  onDelete: () => void;  // NEW PROP
 }
-```
 
----
-
-## 3. Update `useBoardConfigs.ts`
-
-### 3a. Update `mapConfigFields` Helper
-
-Include `workspace_name` in the field mapping:
-
-```typescript
-const mapConfigFields = (config: any): Omit<BoardConfigWithAccess, 'memberAccess'> => ({
-  // ... existing fields
-  monday_account_id: config.monday_account_id || null,
-  workspace_name: config.workspace_name || null,  // ADD THIS
-  created_at: config.created_at,
-  updated_at: config.updated_at,
-});
-```
-
-### 3b. Update `createConfig` Function
-
-Save the workspace name from the current integration when creating a new board config:
-
-```typescript
-const { data: configData, error: configError } = await supabase
-  .from("board_configs")
-  .insert({
-    organization_id: organization.id,
-    monday_board_id: input.monday_board_id,
-    board_name: input.board_name,
-    filter_column_id: input.filter_column_id,
-    filter_column_name: input.filter_column_name,
-    filter_column_type: input.filter_column_type,
-    visible_columns: input.visible_columns,
-    monday_account_id: integration?.monday_account_id || null,
-    workspace_name: integration?.workspace_name || null,  // ADD THIS
-    is_active: true,
-  })
-  .select()
-  .single();
-```
-
----
-
-## 4. Update `BoardConfig.tsx`
-
-### 4a. Import useIntegration Hook
-
-Add the hook import to access current connection info:
-
-```typescript
-import { useIntegration } from "@/hooks/useIntegration";
-```
-
-### 4b. Add Hook Usage
-
-Inside the component, get the integration data:
-
-```typescript
-const { integration } = useIntegration();
-```
-
-### 4c. Add "Connected to" Badge in Header
-
-Display the currently connected workspace in the page header:
-
-```typescript
-{/* Header */}
-<div className="flex items-center justify-between">
-  <div>
-    <h1 className="text-2xl font-bold">Board Configuration</h1>
-    <p className="text-muted-foreground">
-      Configure Monday.com boards and member access
-    </p>
-    {/* Connected workspace indicator */}
-    {integration?.workspace_name && (
-      <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
-        <Link className="h-4 w-4 text-[#01cb72]" />
-        <span>Connected to:</span>
-        <span className="font-medium text-foreground">
-          {integration.workspace_name}
-        </span>
-      </div>
-    )}
+// In CardHeader, add delete button
+<div className="flex items-start justify-between">
+  <div className="space-y-1">
+    <CardTitle className="text-lg">{config.board_name}</CardTitle>
+    <Badge variant="secondary" className="bg-muted text-muted-foreground">
+      Other Account
+    </Badge>
   </div>
-  <Button onClick={() => setAddDialogOpen(true)}>
-    <Plus className="mr-2 h-4 w-4" />
-    Add Board
-  </Button>
+  {/* NEW: Delete button */}
+  <AlertDialog>
+    <AlertDialogTrigger asChild>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-60 hover:opacity-100"
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </AlertDialogTrigger>
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Delete Board Configuration?</AlertDialogTitle>
+        <AlertDialogDescription>
+          This will permanently delete the "{config.board_name}" configuration. 
+          This action cannot be undone.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction
+          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          onClick={onDelete}
+        >
+          Delete
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
 </div>
 ```
 
-### 4d. Update Inactive Boards Grouping Display
+### `BoardConfig.tsx`
 
-Show workspace name instead of account ID in the inactive section:
+Pass the `deleteConfig` function to each `InactiveBoardCard`.
 
-```typescript
-{Object.entries(groupedInactiveConfigs).map(([accountId, configsGroup]) => (
-  <div key={accountId} className="space-y-3">
-    <div className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-      <Building2 className="h-4 w-4" />
-      {/* Show workspace name if available, fall back to account ID */}
-      {configsGroup[0]?.workspace_name || `Account: ${accountId}`}
-    </div>
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-60">
-      {configsGroup.map(config => (
-        <InactiveBoardCard key={config.id} config={config} />
-      ))}
-    </div>
-  </div>
-))}
+```tsx
+// Before
+<InactiveBoardCard key={config.id} config={config} />
+
+// After
+<InactiveBoardCard 
+  key={config.id} 
+  config={config} 
+  onDelete={() => deleteConfig(config.id)} 
+/>
 ```
 
-### 4e. Add Link Icon Import
+---
 
-Add the Link icon import for the connected workspace indicator:
+## 3. Prominent "Connected to" Header Badge
 
-```typescript
-import { Plus, Loader2, AlertCircle, LayoutGrid, ChevronRight, ChevronDown, Info, Building2, Link } from "lucide-react";
+### `BoardConfig.tsx`
+
+Replace the plain text indicator with a visually prominent Badge with a pulse animation.
+
+**Changes:**
+- Import `Badge` component
+- Replace text-based indicator with styled Badge
+
+```tsx
+// Before
+{integration?.workspace_name && (
+  <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
+    <Link className="h-4 w-4 text-[#01cb72]" />
+    <span>Connected to:</span>
+    <span className="font-medium text-foreground">
+      {integration.workspace_name}
+    </span>
+  </div>
+)}
+
+// After
+{integration?.workspace_name && (
+  <Badge 
+    variant="outline" 
+    className="mt-2 bg-green-50 text-green-700 border-green-200 gap-2"
+  >
+    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+    Connected to: {integration.workspace_name}
+  </Badge>
+)}
 ```
 
 ---
 
 ## Visual Preview
 
-### Header with Connected Workspace
+### Inactive Board Card (After)
+
+```text
+┌────────────────────────────────────────┐
+│  Tasks                          [🗑]   │  ← Delete button (subtle)
+│  ┌──────────────┐                      │
+│  │ Other Account│                      │
+│  └──────────────┘                      │
+│                                        │
+│  Filter Column: Person                 │
+│  Visible Columns: 5 selected           │
+│  Members with Access: 3                │
+│                                        │
+│  [↔ Switch to Thewowstudio]            │  ← Clickable button
+└────────────────────────────────────────┘
+```
+
+### Header (After)
 
 ```text
 ┌────────────────────────────────────────────────────────────┐
 │  Board Configuration                        [+ Add Board]  │
 │  Configure Monday.com boards and member access             │
-│  🔗 Connected to: MondayEase                               │
-└────────────────────────────────────────────────────────────┘
-```
-
-### Inactive Boards Section with Workspace Names
-
-```text
-┌────────────────────────────────────────────────────────────┐
-│  ▶ Boards from Other Accounts (2)  ⓘ                      │
-├────────────────────────────────────────────────────────────┤
-│  🏢 Thewowstudio                                           │
-│  ┌──────────────┐                                          │
-│  │ Tasks        │  (grayed out)                            │
-│  │ Other Account│                                          │
-│  └──────────────┘                                          │
+│  ┌─────────────────────────────────────┐                   │
+│  │ 🟢 Connected to: MondayEase         │  ← Badge with    │
+│  └─────────────────────────────────────┘    pulse dot     │
 └────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Data Flow
+## Technical Details
 
-```text
-When creating board config:
-┌─────────────────────────────────┐
-│ integration.monday_account_id   │ ──► saved to board_configs.monday_account_id
-│ integration.workspace_name      │ ──► saved to board_configs.workspace_name
-└─────────────────────────────────┘
+### New Imports for InactiveBoardCard.tsx
 
-When displaying inactive boards:
-┌─────────────────────────────────┐
-│ config.workspace_name exists?   │
-│   YES ──► Show "Thewowstudio"   │
-│   NO  ──► Show "Account: 12345" │  (fallback for legacy configs)
-└─────────────────────────────────┘
+```tsx
+import { useNavigate } from "react-router-dom";
+import { Info, Filter, Columns, Users, Trash2, ArrowRightLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+```
+
+### New Import for BoardConfig.tsx
+
+```tsx
+import { Badge } from "@/components/ui/badge";
 ```
 
 ---
 
-## Backwards Compatibility
+## Files Modified
 
-- Existing board configs will have `workspace_name = NULL`
-- The UI falls back to displaying the account ID when no workspace name is stored
-- New board configs will automatically capture the workspace name from the current integration
+1. **`src/components/boards/InactiveBoardCard.tsx`** - Major update
+   - Add navigation hook and delete functionality
+   - New props interface with `onDelete`
+   - Replace info message with switch button
+   - Add delete button with AlertDialog
 
+2. **`src/pages/BoardConfig.tsx`** - Minor update
+   - Import Badge component
+   - Update header with prominent Badge
+   - Pass `onDelete` prop to InactiveBoardCard
