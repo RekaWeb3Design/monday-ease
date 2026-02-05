@@ -63,7 +63,7 @@ const memberNavItems: NavItem[] = [
 
 export function AppSidebar() {
   const { state, toggleSidebar } = useSidebar();
-  const { profile, memberRole } = useAuth();
+  const { profile, memberRole, organization } = useAuth();
   const { views } = useCustomBoardViews();
   const isCollapsed = state === "collapsed";
   const isOwner = memberRole === "owner";
@@ -236,6 +236,11 @@ export function AppSidebar() {
               <span className="truncate text-sm font-medium text-sidebar-foreground">
                 {displayName}
               </span>
+              {organization && (
+                <span className="truncate text-xs text-primary/80">
+                  {organization.name}
+                </span>
+              )}
               <span className="truncate text-xs text-sidebar-foreground/70">
                 {profile?.email || "user@example.com"}
               </span>
