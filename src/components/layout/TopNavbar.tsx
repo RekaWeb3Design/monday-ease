@@ -16,7 +16,7 @@ interface TopNavbarProps {
 }
 
 export function TopNavbar({ pageTitle = "Dashboard" }: TopNavbarProps) {
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, organization } = useAuth();
 
   const displayName = profile?.full_name || profile?.email?.split("@")[0] || "User";
   const avatarInitial = displayName.charAt(0).toUpperCase();
@@ -62,6 +62,9 @@ export function TopNavbar({ pageTitle = "Dashboard" }: TopNavbarProps) {
               <div className="flex flex-col space-y-1 leading-none">
                 <p className="font-medium">{displayName}</p>
                 <p className="text-xs text-muted-foreground">{profile?.email}</p>
+                {organization && (
+                  <p className="text-xs text-primary font-medium">{organization.name}</p>
+                )}
               </div>
             </div>
             <DropdownMenuSeparator />
