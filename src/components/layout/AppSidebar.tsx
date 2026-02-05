@@ -253,9 +253,6 @@ export function AppSidebar() {
                   {organization.name}
                 </span>
               )}
-              <span className="truncate text-xs text-sidebar-foreground/70">
-                {profile?.email || "user@example.com"}
-              </span>
             </div>
           )}
         </div>
