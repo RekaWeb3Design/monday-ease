@@ -1,21 +1,22 @@
 
 
-# Dashboard Improvement Plan
+# Getting Started Checklist Implementation
 
 ## Overview
 
-Replace placeholder/hardcoded stats with real data fetched from the database, add loading states, and enhance the dashboard with recent activity and quick actions sections.
+Add an interactive onboarding checklist to the dashboard that shows new users their setup progress with clear action items. The checklist automatically tracks completion based on real data and hides once all steps are complete (with option to dismiss early).
 
 ---
 
-## Data Sources
+## Onboarding Steps
 
-| Stat | Source | Logic |
-|------|--------|-------|
-| Total Boards | `useBoardConfigs()` | Count of `configs` (active boards for current account) |
-| Team Members | `useOrganizationMembers()` | Count of `members` with `status === 'active'` |
-| Active Templates | `useWorkflowTemplates()` | Count of `templates` |
-| Executions This Month | `useWorkflowExecutions()` | Filter `executions` where `started_at` is in current month |
+| Step | Description | Completion Check | Link |
+|------|-------------|------------------|------|
+| Connect Monday.com | Link your Monday.com account | `isConnected === true` | /integrations |
+| Configure Your First Board | Set up a board for your team | `configs.length > 0` | /board-config |
+| Invite Team Members | Add colleagues to your organization | `activeMembers.length > 1` (excluding owner) | /organization |
+| Create a Custom View | Build a tailored view for members | `views.length > 0` | /board-views |
+| Run Your First Workflow | Execute an automation template | `executions.length > 0` | /templates |
 
 ---
 
@@ -23,306 +24,169 @@ Replace placeholder/hardcoded stats with real data fetched from the database, ad
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/pages/Dashboard.tsx` | UPDATE | Replace placeholders with real data, add loading states, recent activity, quick actions |
+| `src/components/dashboard/GettingStartedChecklist.tsx` | CREATE | New component with checklist UI and progress tracking |
+| `src/pages/Dashboard.tsx` | UPDATE | Import and render the checklist component |
 
 ---
 
-## Implementation Details
+## Technical Details
 
-### 1. Import Required Hooks
+### 1. GettingStartedChecklist.tsx (NEW)
 
 ```typescript
-import { useBoardConfigs } from "@/hooks/useBoardConfigs";
-import { useOrganizationMembers } from "@/hooks/useOrganizationMembers";
-import { useWorkflowTemplates } from "@/hooks/useWorkflowTemplates";
-import { useWorkflowExecutions } from "@/hooks/useWorkflowExecutions";
-import { useIntegration } from "@/hooks/useIntegration";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useMemo, useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import { 
+  CheckCircle2, Circle, ChevronRight, X, 
+  Rocket, ExternalLink, LayoutDashboard,
+  Users, Zap, Eye, Cable
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+
+interface ChecklistStep {
+  id: string;
+  title: string;
+  description: string;
+  icon: React.ElementType;
+  isComplete: boolean;
+  href: string;
+}
+
+interface GettingStartedChecklistProps {
+  isConnected: boolean;
+  boardCount: number;
+  memberCount: number;  // Active members only
+  viewCount: number;
+  executionCount: number;
+  isLoading: boolean;
+}
 ```
 
-### 2. Fetch Real Data
+### 2. Component Features
+
+**Progress Tracking**
+- Visual progress bar showing percentage complete
+- "X of 5 steps completed" label
+- Animated transitions when steps complete
+
+**Step Display**
+- Each step shows icon, title, description
+- Completed steps show green checkmark
+- Incomplete steps are clickable with arrow indicator
+- Links navigate to relevant page
+
+**Dismissal Options**
+- "Dismiss" button to hide checklist early (stored in localStorage)
+- Auto-hide when all 5 steps complete
+- "Show Getting Started" button in a collapsed state if dismissed
+
+**Loading State**
+- Show skeleton while data loads
+- Don't show incomplete steps until data is ready
+
+### 3. Local Storage for Dismissal
 
 ```typescript
-const { configs, isLoading: boardsLoading } = useBoardConfigs();
-const { members, isLoading: membersLoading } = useOrganizationMembers();
-const { templates, isLoading: templatesLoading } = useWorkflowTemplates();
-const { executions, isLoading: executionsLoading } = useWorkflowExecutions();
-const { isConnected } = useIntegration();
+const STORAGE_KEY = "mondayease_onboarding_dismissed";
+
+// Check if dismissed
+const isDismissed = localStorage.getItem(STORAGE_KEY) === "true";
+
+// Dismiss handler
+const handleDismiss = () => {
+  localStorage.setItem(STORAGE_KEY, "true");
+  setShowChecklist(false);
+};
+
+// Show again handler
+const handleShowAgain = () => {
+  localStorage.removeItem(STORAGE_KEY);
+  setShowChecklist(true);
+};
 ```
 
-### 3. Compute Stats Dynamically
+### 4. Dashboard Integration
+
+Update Dashboard.tsx to:
+1. Import the new `GettingStartedChecklist` component
+2. Import `useCustomBoardViews` hook
+3. Pass the required props based on existing data
+4. Render between the warning banner and stats grid
 
 ```typescript
-// Active team members (not pending)
-const activeMembers = members.filter(m => m.status === 'active');
+// Add import
+import { GettingStartedChecklist } from "@/components/dashboard/GettingStartedChecklist";
+import { useCustomBoardViews } from "@/hooks/useCustomBoardViews";
 
-// Executions this month
-const now = new Date();
-const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-const executionsThisMonth = executions.filter(e => 
-  e.started_at && new Date(e.started_at) >= startOfMonth
+// In component
+const { views, isLoading: viewsLoading } = useCustomBoardViews();
+
+// Active members excluding the current user (owner)
+const otherActiveMembers = members.filter(
+  m => m.status === 'active' && m.user_id !== user?.id
 );
 
-// Recent executions for activity feed (last 5)
-const recentExecutions = executions.slice(0, 5);
-
-// Build stats array with real values
-const stats = [
-  {
-    title: "Total Boards",
-    value: configs.length,
-    description: "Configured boards",
-    icon: LayoutDashboard,
-    isLoading: boardsLoading,
-  },
-  {
-    title: "Team Members",
-    value: activeMembers.length,
-    description: "Active members",
-    icon: Users,
-    isLoading: membersLoading,
-  },
-  {
-    title: "Templates",
-    value: templates.length,
-    description: "Available workflows",
-    icon: Zap,
-    isLoading: templatesLoading,
-  },
-  {
-    title: "Executions",
-    value: executionsThisMonth.length,
-    description: "This month",
-    icon: TrendingUp,
-    isLoading: executionsLoading,
-  },
-];
-```
-
-### 4. Stats Cards with Loading States
-
-```typescript
-<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-  {stats.map((stat) => (
-    <Card key={stat.title}>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {stat.title}
-        </CardTitle>
-        <stat.icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        {stat.isLoading ? (
-          <Skeleton className="h-8 w-16" />
-        ) : (
-          <div className="text-2xl font-bold">{stat.value}</div>
-        )}
-        <p className="text-xs text-muted-foreground">{stat.description}</p>
-      </CardContent>
-    </Card>
-  ))}
-</div>
-```
-
-### 5. Recent Activity Section
-
-Replace the placeholder card with a recent activity section showing the last 5 workflow executions:
-
-```typescript
-{/* Recent Activity */}
-<Card>
-  <CardHeader>
-    <CardTitle className="flex items-center gap-2">
-      <Activity className="h-5 w-5" />
-      Recent Activity
-    </CardTitle>
-  </CardHeader>
-  <CardContent>
-    {executionsLoading ? (
-      <div className="space-y-3">
-        {[1, 2, 3].map(i => (
-          <Skeleton key={i} className="h-12 w-full" />
-        ))}
-      </div>
-    ) : recentExecutions.length === 0 ? (
-      <div className="text-center py-8 text-muted-foreground">
-        <p>No recent workflow executions</p>
-        <p className="text-sm">Run a template to see activity here</p>
-      </div>
-    ) : (
-      <div className="space-y-3">
-        {recentExecutions.map(exec => (
-          <div key={exec.id} className="flex items-center justify-between p-3 rounded-lg border">
-            <div className="flex items-center gap-3">
-              <StatusIcon status={exec.status} />
-              <div>
-                <p className="font-medium text-sm">
-                  {exec.workflow_templates?.name || 'Unknown Template'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {formatRelativeTime(exec.started_at)}
-                </p>
-              </div>
-            </div>
-            <Badge variant={getStatusVariant(exec.status)}>
-              {exec.status}
-            </Badge>
-          </div>
-        ))}
-      </div>
-    )}
-  </CardContent>
-</Card>
-```
-
-### 6. Quick Actions Section
-
-Add quick action buttons for common tasks:
-
-```typescript
-{/* Quick Actions */}
-<Card>
-  <CardHeader>
-    <CardTitle className="flex items-center gap-2">
-      <Sparkles className="h-5 w-5" />
-      Quick Actions
-    </CardTitle>
-  </CardHeader>
-  <CardContent>
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Button variant="outline" asChild className="justify-start">
-        <Link to="/board-config">
-          <LayoutDashboard className="mr-2 h-4 w-4" />
-          Configure Boards
-        </Link>
-      </Button>
-      <Button variant="outline" asChild className="justify-start">
-        <Link to="/organization">
-          <Users className="mr-2 h-4 w-4" />
-          Manage Team
-        </Link>
-      </Button>
-      <Button variant="outline" asChild className="justify-start">
-        <Link to="/templates">
-          <Zap className="mr-2 h-4 w-4" />
-          Run Template
-        </Link>
-      </Button>
-      <Button variant="outline" asChild className="justify-start">
-        <Link to="/integrations">
-          <Settings className="mr-2 h-4 w-4" />
-          Integrations
-        </Link>
-      </Button>
-    </div>
-  </CardContent>
-</Card>
-```
-
-### 7. Integration Status Banner
-
-Show a banner if Monday.com is not connected:
-
-```typescript
-{!isConnected && (
-  <Card className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
-    <CardContent className="flex items-center justify-between p-4">
-      <div className="flex items-center gap-3">
-        <AlertCircle className="h-5 w-5 text-amber-600" />
-        <div>
-          <p className="font-medium text-amber-800 dark:text-amber-200">
-            Monday.com not connected
-          </p>
-          <p className="text-sm text-amber-600 dark:text-amber-400">
-            Connect your account to start managing boards
-          </p>
-        </div>
-      </div>
-      <Button asChild size="sm">
-        <Link to="/integrations">Connect Now</Link>
-      </Button>
-    </CardContent>
-  </Card>
+// Render checklist (only for owners)
+{memberRole === 'owner' && (
+  <GettingStartedChecklist
+    isConnected={isConnected}
+    boardCount={configs.length}
+    memberCount={otherActiveMembers.length}
+    viewCount={views.length}
+    executionCount={executions.length}
+    isLoading={boardsLoading || membersLoading || viewsLoading || executionsLoading}
+  />
 )}
 ```
 
 ---
 
-## Helper Functions
-
-```typescript
-// Format relative time (e.g., "2 hours ago")
-function formatRelativeTime(dateStr: string | null): string {
-  if (!dateStr) return 'Unknown time';
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-  
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins} min ago`;
-  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-  return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-}
-
-// Get status badge variant
-function getStatusVariant(status: string) {
-  switch (status) {
-    case 'success': return 'default';
-    case 'failed': return 'destructive';
-    case 'running': return 'secondary';
-    default: return 'outline';
-  }
-}
-
-// Status icon component
-function StatusIcon({ status }: { status: string }) {
-  switch (status) {
-    case 'success':
-      return <CheckCircle className="h-5 w-5 text-green-500" />;
-    case 'failed':
-      return <XCircle className="h-5 w-5 text-red-500" />;
-    case 'running':
-      return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />;
-    default:
-      return <Clock className="h-5 w-5 text-gray-400" />;
-  }
-}
-```
-
----
-
-## Final Component Structure
+## UI Design
 
 ```text
-Dashboard
-├── Welcome Header (with role badge)
-├── Integration Warning Banner (if not connected)
-├── Stats Grid (4 cards with real data + loading states)
-│   ├── Total Boards
-│   ├── Team Members (active only)
-│   ├── Templates
-│   └── Executions This Month
-├── Quick Actions (4 buttons linking to key pages)
-└── Recent Activity (last 5 workflow executions)
+┌─────────────────────────────────────────────────────────────┐
+│  🚀 Getting Started                              [Dismiss X]│
+├─────────────────────────────────────────────────────────────┤
+│  ████████████░░░░░░░░░░░  2 of 5 steps completed           │
+├─────────────────────────────────────────────────────────────┤
+│  ✓  Connect Monday.com                                      │
+│     Link your account to sync boards               [Done]   │
+├─────────────────────────────────────────────────────────────┤
+│  ✓  Configure Your First Board                              │
+│     Set up a board for task management             [Done]   │
+├─────────────────────────────────────────────────────────────┤
+│  ○  Invite Team Members                                   → │
+│     Add colleagues to collaborate                           │
+├─────────────────────────────────────────────────────────────┤
+│  ○  Create a Custom View                                  → │
+│     Build tailored views for your team                      │
+├─────────────────────────────────────────────────────────────┤
+│  ○  Run Your First Workflow                               → │
+│     Execute an automation template                          │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## New Imports Required
+## Styling
 
-```typescript
-import { Link } from "react-router-dom";
-import { 
-  LayoutDashboard, Users, Zap, TrendingUp, 
-  Activity, Sparkles, Settings, AlertCircle,
-  CheckCircle, XCircle, Clock, Loader2
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-```
+- Use existing shadcn/ui Card, Button, Progress components
+- Primary color (`#01cb72`) for completed checkmarks and progress bar
+- Muted styling for incomplete steps
+- Hover state on clickable incomplete steps
+- Smooth transitions for progress updates
+
+---
+
+## Edge Cases
+
+1. **New user with no data**: Show all steps as incomplete
+2. **Returning user with all complete**: Hide checklist (or show "All done!" message)
+3. **Dismissed but incomplete**: Show small "Resume setup" button
+4. **Member role (non-owner)**: Don't show checklist (onboarding is for owners)
+5. **Loading state**: Show skeleton to prevent flicker
 
 ---
 
@@ -330,5 +194,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 | File | Changes |
 |------|---------|
-| `src/pages/Dashboard.tsx` | Complete rewrite with real data, loading states, activity feed, quick actions |
+| `src/components/dashboard/GettingStartedChecklist.tsx` | New component with progress tracking, step list, dismiss functionality |
+| `src/pages/Dashboard.tsx` | Import and render checklist, add `useCustomBoardViews` hook |
 
