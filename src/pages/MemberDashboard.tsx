@@ -9,7 +9,7 @@ export default function MemberDashboard() {
   const { profile } = useAuth();
   const { tasks, isLoading, error, refetch } = useMemberTasks();
 
-  const displayName = profile?.full_name?.split(" ")[0] || "there";
+  const displayName = profile?.full_name || "there";
 
   // Loading state
   if (isLoading) {
