@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Building2,
@@ -12,12 +12,10 @@ import {
   LayoutGrid,
   ClipboardList,
   Eye,
-  ChevronRight,
+  LogOut,
 } from "lucide-react";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 import { NavLink } from "@/components/NavLink";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -29,16 +27,8 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/useAuth";
 import { useCustomBoardViews } from "@/hooks/useCustomBoardViews";
 import { getIconByName } from "@/components/board-views/IconPicker";
@@ -63,8 +53,9 @@ const memberNavItems: NavItem[] = [
 
 export function AppSidebar() {
   const { state, toggleSidebar } = useSidebar();
-  const { profile, memberRole, organization } = useAuth();
+  const { memberRole, organization, signOut } = useAuth();
   const { views } = useCustomBoardViews();
+  const navigate = useNavigate();
   const isCollapsed = state === "collapsed";
   const isOwner = memberRole === "owner";
 
@@ -78,8 +69,10 @@ export function AppSidebar() {
   // Select nav items based on role
   const navItems = isOwner ? ownerNavItems : memberNavItems;
 
-  const displayName = profile?.full_name || profile?.email?.split("@")[0] || "User";
-  const avatarInitial = displayName.charAt(0).toUpperCase();
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/auth");
+  };
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">
@@ -219,44 +212,38 @@ export function AppSidebar() {
         )}
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border">
-        {/* Collapse toggle */}
-        <div className="flex justify-end p-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleSidebar}
-            className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          >
-            {isCollapsed ? (
-              <ChevronsRight className="h-4 w-4" />
-            ) : (
-              <ChevronsLeft className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-
-        {/* User section */}
-        <div className="flex items-center gap-3 p-3">
-          <Avatar className="h-8 w-8 shrink-0">
-            <AvatarImage src={profile?.avatar_url || undefined} alt={displayName} />
-            <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-              {avatarInitial}
-            </AvatarFallback>
-          </Avatar>
-          {!isCollapsed && (
-            <div className="flex flex-col overflow-hidden">
-              <span className="truncate text-sm font-medium text-sidebar-foreground">
-                {displayName}
-              </span>
-              {organization && (
-                <span className="truncate text-xs text-primary/80">
-                  {organization.name}
-                </span>
+      <SidebarFooter className="border-t border-sidebar-border p-2">
+        <SidebarMenu>
+          {/* Collapse toggle */}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              onClick={toggleSidebar}
+              tooltip={isCollapsed ? "Expand" : "Collapse"}
+              className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              {isCollapsed ? (
+                <ChevronsRight className="h-4 w-4" />
+              ) : (
+                <>
+                  <ChevronsLeft className="h-4 w-4" />
+                  <span>Collapse</span>
+                </>
               )}
-            </div>
-          )}
-        </div>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+
+          {/* Sign Out */}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              onClick={handleSignOut}
+              tooltip="Sign Out"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <LogOut className="h-4 w-4" />
+              {!isCollapsed && <span>Sign Out</span>}
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   );

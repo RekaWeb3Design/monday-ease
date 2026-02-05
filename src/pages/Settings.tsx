@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Camera, Loader2 } from "lucide-react";
+import { Camera, Loader2, Pencil } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -10,15 +10,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export default function Settings() {
-  const { profile, user, refreshOrganization } = useAuth();
+  const { profile, user, refreshProfile } = useAuth();
   const { toast } = useToast();
   const [isUploading, setIsUploading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  // Edit name state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(profile?.full_name || "");
+  const [isSaving, setIsSaving] = useState(false);
 
   // Sync avatarUrl with profile when it changes
   useEffect(() => {
     setAvatarUrl(profile?.avatar_url || null);
   }, [profile?.avatar_url]);
+
+  // Sync editName when profile changes
+  useEffect(() => {
+    setEditName(profile?.full_name || "");
+  }, [profile?.full_name]);
 
   const displayName = profile?.full_name || "User";
   const avatarInitial = displayName.charAt(0).toUpperCase();
@@ -76,8 +86,8 @@ export default function Settings() {
       if (updateError) throw updateError;
 
       setAvatarUrl(urlWithCacheBust);
-      // Refresh to update avatar throughout the app
-      await refreshOrganization();
+      // Refresh profile to update avatar throughout the app
+      await refreshProfile();
       toast({ title: "Profile photo updated!" });
     } catch (err) {
       console.error("Avatar upload error:", err);
@@ -88,6 +98,28 @@ export default function Settings() {
       });
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from("user_profiles")
+        .update({ full_name: editName.trim() })
+        .eq("id", user.id);
+      
+      if (error) throw error;
+      
+      await refreshProfile();
+      setIsEditing(false);
+      toast({ title: "Profile updated!" });
+    } catch (err) {
+      toast({ title: "Failed to save", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -121,7 +153,7 @@ export default function Settings() {
               </Label>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="avatar-upload-btn" className="cursor-pointer">
+              <Label htmlFor="avatar-upload" className="cursor-pointer">
                 <Button variant="outline" size="sm" asChild disabled={isUploading}>
                   <span>
                     <Camera className="mr-2 h-4 w-4" />
@@ -145,13 +177,49 @@ export default function Settings() {
 
           {/* Profile Info */}
           <div className="space-y-4 pt-4 border-t">
-            <div className="grid gap-2">
+            <div className="space-y-1">
               <Label>Full Name</Label>
-              <p className="text-sm">{profile?.full_name || "Not set"}</p>
+              {isEditing ? (
+                <div className="flex gap-2">
+                  <Input 
+                    value={editName} 
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Your full name"
+                  />
+                  <Button onClick={handleSaveProfile} disabled={isSaving} size="sm">
+                    {isSaving ? "Saving..." : "Save"}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      setIsEditing(false);
+                      setEditName(profile?.full_name || "");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm">{profile?.full_name || "Not set"}</p>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => {
+                      setEditName(profile?.full_name || "");
+                      setIsEditing(true);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
             </div>
-            <div className="grid gap-2">
+            <div className="space-y-1">
               <Label>Email</Label>
               <p className="text-sm text-muted-foreground">{profile?.email}</p>
+              <p className="text-xs text-muted-foreground">Email cannot be changed</p>
             </div>
           </div>
         </CardContent>
