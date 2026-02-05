@@ -76,9 +76,9 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">
-      <SidebarHeader className="border-b border-sidebar-border p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
+      <SidebarHeader className="border-b border-sidebar-border p-2">
+        <div className={`flex items-center ${isCollapsed ? 'flex-col gap-2' : 'justify-between'}`}>
+          <div className="flex items-center justify-center">
             {isCollapsed ? (
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
                 M
@@ -95,7 +95,7 @@ export function AppSidebar() {
             variant="ghost"
             size="icon"
             onClick={toggleSidebar}
-            className="h-8 w-8 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+            className={`text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent ${isCollapsed ? 'h-6 w-6' : 'h-8 w-8'}`}
           >
             {isCollapsed ? (
               <ChevronRight className="h-4 w-4" />
