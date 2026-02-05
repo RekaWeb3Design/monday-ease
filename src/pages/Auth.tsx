@@ -75,6 +75,7 @@ export default function Auth() {
   const [setupLoading, setSetupLoading] = useState(false);
   const [showSetupPassword, setShowSetupPassword] = useState(false);
   const [showSetupConfirmPassword, setShowSetupConfirmPassword] = useState(false);
+  const [invitedOrgName, setInvitedOrgName] = useState<string | null>(null);
 
   // Detect if user arrived via password recovery link
   useEffect(() => {
@@ -86,6 +87,31 @@ export default function Auth() {
       setShowPasswordSetup(true);
     }
   }, []);
+
+  // Fetch organization name for invited users on password setup
+  useEffect(() => {
+    async function fetchInvitedOrgName() {
+      if (!showPasswordSetup || !user?.user_metadata?.invited_to_organization) {
+        return;
+      }
+      
+      try {
+        const { data } = await supabase
+          .from("organizations")
+          .select("name")
+          .eq("id", user.user_metadata.invited_to_organization)
+          .single();
+        
+        if (data) {
+          setInvitedOrgName(data.name);
+        }
+      } catch (err) {
+        console.error("Error fetching invited org:", err);
+      }
+    }
+    
+    fetchInvitedOrgName();
+  }, [showPasswordSetup, user]);
 
   // Redirect authenticated users to dashboard (but not if setting up password)
   useEffect(() => {
@@ -325,6 +351,11 @@ export default function Auth() {
           <Card>
             <CardHeader className="text-center pb-2">
               <h2 className="text-xl font-semibold">Set Your Password</h2>
+              {invitedOrgName && (
+                <p className="text-sm text-primary font-medium mt-1">
+                  You're joining {invitedOrgName}
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">
                 Create a password to complete your account setup
               </p>
