@@ -13,7 +13,10 @@ export function RequireOrganization({ children }: RequireOrganizationProps) {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        </div>
       </div>
     );
   }
@@ -21,6 +24,20 @@ export function RequireOrganization({ children }: RequireOrganizationProps) {
   // If user has an organization, render children
   if (organization) {
     return <>{children}</>;
+  }
+
+  // Check if user is an invited member (has invitation metadata)
+  // If so, AuthContext should be activating them - show loading
+  const invitedOrgId = user?.user_metadata?.invited_to_organization;
+  if (invitedOrgId) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Activating your membership...</p>
+        </div>
+      </div>
+    );
   }
 
   // Check if user registered as a member - they shouldn't go to onboarding

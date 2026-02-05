@@ -17,6 +17,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [memberRole, setMemberRole] = useState<MemberRole | null>(null);
   const [loading, setLoading] = useState(true);
   const [authInitialized, setAuthInitialized] = useState(false);
+  const [activatingMembership, setActivatingMembership] = useState(false);
 
   // Fetch user profile from user_profiles table
   const fetchProfile = useCallback(async (userId: string) => {
@@ -72,6 +73,41 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setMemberRole(null);
     }
   }, []);
+
+  // Activate invited member via edge function
+  const activateInvitedMember = useCallback(async (currentUser: User) => {
+    const invitedOrgId = currentUser.user_metadata?.invited_to_organization;
+    
+    if (!invitedOrgId) {
+      return false; // Not an invited member
+    }
+    
+    console.log("Detected invited member, activating membership...");
+    setActivatingMembership(true);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('activate-invited-member');
+      
+      if (error) {
+        console.error("Error activating membership:", error);
+        return false;
+      }
+      
+      if (data?.success) {
+        console.log("Membership activated, refreshing organization data...");
+        // Refresh organization data to pick up the new membership
+        await fetchOrganization(currentUser.id);
+        return true;
+      }
+      
+      return false;
+    } catch (err) {
+      console.error("Failed to activate invited member:", err);
+      return false;
+    } finally {
+      setActivatingMembership(false);
+    }
+  }, [fetchOrganization]);
 
   // Refresh organization data
   const refreshOrganization = useCallback(async () => {
@@ -158,7 +194,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   // Effect 2: Once auth is initialized, load profile + org data for the user.
-  // setLoading(false) is called in exactly ONE place — the finally block.
+  // Also activates invited members if they have invitation metadata.
   useEffect(() => {
     if (!authInitialized) return;
 
@@ -175,7 +211,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const userProfile = await fetchProfile(user.id);
         if (cancelled) return;
         setProfile(userProfile);
+        
         await fetchOrganization(user.id);
+        
+        // If user has invitation metadata, activate their membership
+        // This happens when an invited user confirms their account
+        if (!cancelled) {
+          const invitedOrgId = user.user_metadata?.invited_to_organization;
+          if (invitedOrgId) {
+            await activateInvitedMember(user);
+          }
+        }
       } catch (error) {
         console.error("Error loading user data:", error);
       } finally {
@@ -188,7 +234,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => {
       cancelled = true;
     };
-  }, [authInitialized, user, fetchProfile, fetchOrganization]);
+  }, [authInitialized, user, fetchProfile, fetchOrganization, activateInvitedMember]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
@@ -227,7 +273,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         profile,
         organization,
         memberRole,
-        loading,
+        loading: loading || activatingMembership,
         signIn,
         signUp,
         signOut,

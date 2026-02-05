@@ -10,7 +10,7 @@ import mondayeaseLogo from "@/assets/mondayease_logo.png";
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { organization, createOrganization, loading: authLoading } = useAuth();
+  const { user, organization, createOrganization, loading: authLoading } = useAuth();
 
   const [orgName, setOrgName] = useState("");
   const [error, setError] = useState("");
@@ -22,6 +22,19 @@ export default function Onboarding() {
       navigate("/", { replace: true });
     }
   }, [organization, authLoading, navigate]);
+
+  // Redirect invited members to member dashboard
+  // They should never see the "Create Organization" page
+  useEffect(() => {
+    if (!authLoading && user) {
+      const invitedOrgId = user.user_metadata?.invited_to_organization;
+      if (invitedOrgId) {
+        // This user is an invited member - redirect to member dashboard
+        // The activation should happen via AuthContext
+        navigate("/member", { replace: true });
+      }
+    }
+  }, [authLoading, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
