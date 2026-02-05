@@ -116,6 +116,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [user, fetchOrganization]);
 
+  // Refresh profile data
+  const refreshProfile = useCallback(async () => {
+    if (user) {
+      const userProfile = await fetchProfile(user.id);
+      setProfile(userProfile);
+    }
+  }, [user, fetchProfile]);
+
   // Create organization function
   const createOrganization = useCallback(async (name: string): Promise<Organization> => {
     if (!user || !profile) {
@@ -279,6 +287,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         signOut,
         createOrganization,
         refreshOrganization,
+        refreshProfile,
       }}
     >
       {children}

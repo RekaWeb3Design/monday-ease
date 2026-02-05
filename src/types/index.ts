@@ -55,6 +55,7 @@ export interface AuthContextType {
   signOut: () => Promise<void>;
   createOrganization: (name: string) => Promise<Organization>;
   refreshOrganization: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 // Navigation types
