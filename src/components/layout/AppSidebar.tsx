@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 import { NavLink } from "@/components/NavLink";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
@@ -239,6 +239,7 @@ export function AppSidebar() {
         {/* User section */}
         <div className="flex items-center gap-3 p-3">
           <Avatar className="h-8 w-8 shrink-0">
+            <AvatarImage src={profile?.avatar_url || undefined} alt={displayName} />
             <AvatarFallback className="bg-primary text-primary-foreground text-sm">
               {avatarInitial}
             </AvatarFallback>

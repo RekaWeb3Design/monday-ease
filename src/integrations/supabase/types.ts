@@ -219,6 +219,7 @@ export type Database = {
         Row: {
           created_at: string | null
           id: string
+          logo_url: string | null
           max_members: number | null
           monday_workspace_id: string | null
           name: string
@@ -230,6 +231,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           id?: string
+          logo_url?: string | null
           max_members?: number | null
           monday_workspace_id?: string | null
           name: string
@@ -241,6 +243,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           id?: string
+          logo_url?: string | null
           max_members?: number | null
           monday_workspace_id?: string | null
           name?: string

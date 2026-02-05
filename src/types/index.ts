@@ -21,6 +21,7 @@ export interface Organization {
   monday_workspace_id: string | null;
   settings: Record<string, any> | null;
   max_members: number | null;
+  logo_url: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
