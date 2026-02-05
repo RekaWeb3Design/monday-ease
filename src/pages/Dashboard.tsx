@@ -23,6 +23,8 @@ import { useOrganizationMembers } from "@/hooks/useOrganizationMembers";
 import { useWorkflowTemplates } from "@/hooks/useWorkflowTemplates";
 import { useWorkflowExecutions } from "@/hooks/useWorkflowExecutions";
 import { useIntegration } from "@/hooks/useIntegration";
+import { useCustomBoardViews } from "@/hooks/useCustomBoardViews";
+import { GettingStartedChecklist } from "@/components/dashboard/GettingStartedChecklist";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 
 // Format relative time (e.g., "2 hours ago")
@@ -96,17 +98,23 @@ const getRoleLabel = (role: string | null) => {
 };
 
 export default function Dashboard() {
-  const { profile, organization, memberRole } = useAuth();
+  const { user, profile, organization, memberRole } = useAuth();
   const { configs, isLoading: boardsLoading } = useBoardConfigs();
   const { members, isLoading: membersLoading } = useOrganizationMembers();
   const { templates, isLoading: templatesLoading } = useWorkflowTemplates();
   const { executions, isLoading: executionsLoading } = useWorkflowExecutions();
   const { isConnected } = useIntegration();
+  const { views, isLoading: viewsLoading } = useCustomBoardViews();
 
   const displayName = profile?.full_name || profile?.email?.split("@")[0] || "User";
 
   // Active team members (not pending)
   const activeMembers = members.filter((m) => m.status === "active");
+
+  // Other active members excluding current user (for checklist)
+  const otherActiveMembers = members.filter(
+    (m) => m.status === "active" && m.user_id !== user?.id
+  );
 
   // Executions this month
   const now = new Date();
@@ -189,6 +197,18 @@ export default function Dashboard() {
             </Button>
           </CardContent>
         </Card>
+      )}
+
+      {/* Getting Started Checklist (owners only) */}
+      {memberRole === "owner" && (
+        <GettingStartedChecklist
+          isConnected={isConnected}
+          boardCount={configs.length}
+          memberCount={otherActiveMembers.length}
+          viewCount={views.length}
+          executionCount={executions.length}
+          isLoading={boardsLoading || membersLoading || viewsLoading || executionsLoading}
+        />
       )}
 
       {/* Stats grid */}
