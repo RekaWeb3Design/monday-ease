@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { supabase } from "@/integrations/supabase/client";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -118,7 +117,7 @@ export function AppSidebar() {
               <Avatar className="h-6 w-6">
                 {organization.logo_url ? (
                   <AvatarImage 
-                    src={`${supabase.storage.from('org-logos').getPublicUrl(organization.logo_url).data.publicUrl}?t=${Date.now()}`}
+                    src={organization.logo_url}
                     alt={organization.name}
                   />
                 ) : null}
