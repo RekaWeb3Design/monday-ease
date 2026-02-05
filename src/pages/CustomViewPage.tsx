@@ -87,11 +87,11 @@ export default function CustomViewPage() {
     sortOrder,
   });
 
-  // Sync local columns with view data
+  // Sync local columns with view data - prioritize React Query cached view
   useEffect(() => {
-    const cols = viewData?.columns || view?.selected_columns || [];
+    const cols = view?.selected_columns || viewData?.columns || [];
     setLocalColumns(cols as ViewColumn[]);
-  }, [viewData?.columns, view?.selected_columns]);
+  }, [view?.selected_columns, viewData?.columns]);
 
   // Reset sort to defaults when view loads
   useEffect(() => {
@@ -191,7 +191,17 @@ export default function CustomViewPage() {
   }
 
   const IconComponent = getIconByName(view.icon);
-  const settings = viewData?.settings || view.settings;
+  // Always use React Query cached settings (from useCustomBoardViews) for instant updates
+  // Fall back to edge function data only if view settings are missing
+  const settings = view.settings || viewData?.settings || {
+    show_item_name: true,
+    row_height: 'default',
+    enable_search: true,
+    enable_filters: true,
+    default_sort_column: null,
+    default_sort_order: 'asc' as const,
+    view_mode: 'table' as const,
+  };
   const totalPages = Math.ceil(totalCount / 50);
 
   // Use localColumns for display and filter options
