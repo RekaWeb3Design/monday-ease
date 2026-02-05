@@ -94,10 +94,10 @@ export function AppSidebar() {
         {/* Organization name header (visible when expanded) */}
         {!isCollapsed && organization && (
           <div className="px-4 pt-4 pb-2">
-            <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">
+            <p className="text-[10px] uppercase tracking-wider text-sidebar-foreground/50 mb-1">
               Organization
             </p>
-            <p className="text-sm font-semibold text-white truncate">
+            <p className="text-sm font-semibold text-sidebar-accent-foreground truncate">
               {organization.name}
             </p>
           </div>
