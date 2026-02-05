@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
+import { useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -41,20 +42,20 @@ function generateSlug(name: string): string {
     .substring(0, 50);        // Limit length
 }
 
+// Query key factory for consistency
+const viewsQueryKey = (orgId: string | undefined) => ['custom-board-views', orgId];
+
 export function useCustomBoardViews(): UseCustomBoardViewsReturn {
-  const [views, setViews] = useState<CustomBoardView[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const { organization } = useAuth();
+  const queryClient = useQueryClient();
 
-  const fetchViews = useCallback(async () => {
-    if (!organization?.id) return;
-    
-    setIsLoading(true);
-    setError(null);
+  // Fetch views using React Query
+  const { data: views = [], isLoading, error: queryError, refetch } = useQuery({
+    queryKey: viewsQueryKey(organization?.id),
+    queryFn: async () => {
+      if (!organization?.id) return [];
 
-    try {
       const { data, error: fetchError } = await supabase
         .from("custom_board_views")
         .select("*")
@@ -83,27 +84,17 @@ export function useCustomBoardViews(): UseCustomBoardViewsReturn {
             },
       }));
 
-      setViews(parsedViews);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to fetch views";
-      setError(message);
-      console.error("[useCustomBoardViews] Fetch error:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organization?.id]);
+      return parsedViews;
+    },
+    enabled: !!organization?.id,
+    staleTime: 30000, // Consider data fresh for 30 seconds
+  });
 
-  const createView = useCallback(async (data: CreateViewData): Promise<CustomBoardView | null> => {
-    if (!organization?.id) {
-      toast({
-        title: "Error",
-        description: "No organization found",
-        variant: "destructive",
-      });
-      return null;
-    }
+  // Create mutation
+  const createMutation = useMutation({
+    mutationFn: async (data: CreateViewData) => {
+      if (!organization?.id) throw new Error("No organization found");
 
-    try {
       let slug = generateSlug(data.name);
       
       // Ensure unique slug
@@ -134,38 +125,37 @@ export function useCustomBoardViews(): UseCustomBoardViewsReturn {
 
       if (createError) throw createError;
 
-      const parsedView: CustomBoardView = {
+      return {
         ...newView,
         selected_columns: newView.selected_columns as unknown as ViewColumn[],
         settings: newView.settings as unknown as ViewSettings,
-      };
-
-      setViews(prev => [...prev, parsedView]);
-      
+      } as CustomBoardView;
+    },
+    onSuccess: (newView) => {
+      // Invalidate and refetch to update all components using this data
+      queryClient.invalidateQueries({ queryKey: viewsQueryKey(organization?.id) });
       toast({
         title: "View Created",
-        description: `"${data.name}" has been created successfully.`,
+        description: `"${newView.name}" has been created successfully.`,
       });
-
-      return parsedView;
-    } catch (err) {
+    },
+    onError: (err) => {
       const message = err instanceof Error ? err.message : "Failed to create view";
       toast({
         title: "Error",
         description: message,
         variant: "destructive",
       });
-      return null;
-    }
-  }, [organization?.id, views, toast]);
+    },
+  });
 
-  const updateView = useCallback(async (id: string, data: UpdateViewData): Promise<boolean> => {
-    try {
+  // Update mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: UpdateViewData }) => {
       const updateData: Record<string, any> = {};
       
       if (data.name !== undefined) {
         updateData.name = data.name;
-        // Optionally update slug if name changed
         const newSlug = generateSlug(data.name);
         const existingSlugs = views.filter(v => v.id !== id).map(v => v.slug);
         if (!existingSlugs.includes(newSlug)) {
@@ -188,31 +178,29 @@ export function useCustomBoardViews(): UseCustomBoardViewsReturn {
 
       if (updateError) throw updateError;
 
-      setViews(prev => prev.map(view => 
-        view.id === id 
-          ? { ...view, ...updateData, updated_at: new Date().toISOString() }
-          : view
-      ));
-
+      return { id, data: updateData };
+    },
+    onSuccess: () => {
+      // Invalidate and refetch to update all components (including sidebar)
+      queryClient.invalidateQueries({ queryKey: viewsQueryKey(organization?.id) });
       toast({
         title: "View Updated",
         description: "Changes saved successfully.",
       });
-
-      return true;
-    } catch (err) {
+    },
+    onError: (err) => {
       const message = err instanceof Error ? err.message : "Failed to update view";
       toast({
         title: "Error",
         description: message,
         variant: "destructive",
       });
-      return false;
-    }
-  }, [views, toast]);
+    },
+  });
 
-  const deleteView = useCallback(async (id: string): Promise<boolean> => {
-    try {
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
       const viewToDelete = views.find(v => v.id === id);
       
       const { error: deleteError } = await supabase
@@ -222,40 +210,65 @@ export function useCustomBoardViews(): UseCustomBoardViewsReturn {
 
       if (deleteError) throw deleteError;
 
-      setViews(prev => prev.filter(view => view.id !== id));
-
+      return viewToDelete;
+    },
+    onSuccess: (deletedView) => {
+      // Invalidate and refetch to update all components (including sidebar)
+      queryClient.invalidateQueries({ queryKey: viewsQueryKey(organization?.id) });
       toast({
         title: "View Deleted",
-        description: `"${viewToDelete?.name}" has been deleted.`,
+        description: `"${deletedView?.name}" has been deleted.`,
       });
-
-      return true;
-    } catch (err) {
+    },
+    onError: (err) => {
       const message = err instanceof Error ? err.message : "Failed to delete view";
       toast({
         title: "Error",
         description: message,
         variant: "destructive",
       });
+    },
+  });
+
+  // Wrapper functions to maintain API compatibility
+  const fetchViews = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
+
+  const createView = useCallback(async (data: CreateViewData): Promise<CustomBoardView | null> => {
+    try {
+      return await createMutation.mutateAsync(data);
+    } catch {
+      return null;
+    }
+  }, [createMutation]);
+
+  const updateView = useCallback(async (id: string, data: UpdateViewData): Promise<boolean> => {
+    try {
+      await updateMutation.mutateAsync({ id, data });
+      return true;
+    } catch {
       return false;
     }
-  }, [views, toast]);
+  }, [updateMutation]);
+
+  const deleteView = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      await deleteMutation.mutateAsync(id);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [deleteMutation]);
 
   const getViewBySlug = useCallback((slug: string): CustomBoardView | undefined => {
     return views.find(view => view.slug === slug);
   }, [views]);
 
-  // Auto-fetch on mount and org change
-  useEffect(() => {
-    if (organization?.id) {
-      fetchViews();
-    }
-  }, [organization?.id, fetchViews]);
-
   return {
     views,
     isLoading,
-    error,
+    error: queryError instanceof Error ? queryError.message : null,
     fetchViews,
     createView,
     updateView,
