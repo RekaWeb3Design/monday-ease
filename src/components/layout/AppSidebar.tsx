@@ -7,13 +7,16 @@ import {
   Zap,
   Activity,
   Settings,
-  ChevronsLeft,
-  ChevronsRight,
+  ChevronLeft,
+  ChevronRight,
   LayoutGrid,
   ClipboardList,
   Eye,
   LogOut,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { supabase } from "@/integrations/supabase/client";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -75,31 +78,58 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r-0">
       <SidebarHeader className="border-b border-sidebar-border p-4">
-        <div className="flex items-center justify-center">
-          {isCollapsed ? (
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-lg">
-              M
-            </div>
-          ) : (
-            <img
-              src={mondayeaseLogo}
-              alt="MondayEase"
-              className="w-40 h-auto"
-            />
-          )}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            {isCollapsed ? (
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
+                M
+              </div>
+            ) : (
+              <img
+                src={mondayeaseLogo}
+                alt="MondayEase"
+                className="h-10 w-auto"
+              />
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleSidebar}
+            className="h-8 w-8 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+          >
+            {isCollapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </Button>
         </div>
       </SidebarHeader>
 
       <SidebarContent>
-        {/* Organization name header (visible when expanded) */}
+        {/* Organization name header with logo (visible when expanded) */}
         {!isCollapsed && organization && (
           <div className="px-4 pt-4 pb-2">
-            <p className="text-[10px] uppercase tracking-wider text-sidebar-foreground/50 mb-1">
+            <p className="text-[10px] uppercase tracking-wider text-sidebar-foreground/50 mb-2">
               Organization
             </p>
-            <p className="text-sm font-semibold text-sidebar-accent-foreground truncate">
-              {organization.name}
-            </p>
+            <div className="flex items-center gap-2">
+              <Avatar className="h-6 w-6">
+                {organization.logo_url ? (
+                  <AvatarImage 
+                    src={`${supabase.storage.from('org-logos').getPublicUrl(organization.logo_url).data.publicUrl}?t=${Date.now()}`}
+                    alt={organization.name}
+                  />
+                ) : null}
+                <AvatarFallback className="bg-primary/20 text-primary text-xs">
+                  {organization.name.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <p className="text-sm font-semibold text-sidebar-accent-foreground truncate">
+                {organization.name}
+              </p>
+            </div>
           </div>
         )}
 
@@ -212,24 +242,6 @@ export function AppSidebar() {
 
       <SidebarFooter className="border-t border-sidebar-border p-2">
         <SidebarMenu>
-          {/* Collapse toggle */}
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              onClick={toggleSidebar}
-              tooltip={isCollapsed ? "Expand" : "Collapse"}
-              className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            >
-              {isCollapsed ? (
-                <ChevronsRight className="h-4 w-4" />
-              ) : (
-                <>
-                  <ChevronsLeft className="h-4 w-4" />
-                  <span>Collapse</span>
-                </>
-              )}
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-
           {/* Settings */}
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip="Settings">
