@@ -181,7 +181,7 @@ Deno.serve(async (req: Request) => {
                         <td style="padding: 40px 32px;">
                           <h1 style="margin: 0 0 16px; font-size: 24px; font-weight: 600; color: #1a1a2e;">You're Invited!</h1>
                           <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.6; color: #4a4a68;">
-                            Hi ${displayName.trim().split(' ')[0]},<br><br>
+                            Hi ${displayName.trim()},<br><br>
                             You've been invited to join <strong>${orgName}</strong> on MondayEase. Click the button below to set up your password and access your account.
                           </p>
                           <table width="100%" cellpadding="0" cellspacing="0">
