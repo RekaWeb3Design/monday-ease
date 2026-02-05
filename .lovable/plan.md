@@ -1,20 +1,39 @@
 
 
-# Fix: Invited Members See "Create Organization" Instead of Password Setup
+# Fix: Edge Function Import Error Breaking CORS
 
-## Problem Summary
+## Root Cause
 
-When invited users click "Accept Invitation" from their email, they land on `/onboarding` and see "Create Your Organization" instead of being activated as members. The `activate-invited-member` edge function is never called.
+The edge function logs reveal the actual error:
 
-**Root cause:** The `RequireOrganization` guard checks for `registration_type === "member"` but invited members have `invited_to_organization` in their metadata instead.
+```
+worker boot error: Uncaught SyntaxError: The requested module 
+'https://deno.land/std@0.224.0/encoding/base64.ts' does not provide an export named 'decode'
+```
+
+The `get-member-tasks` function imports `_shared/monday.ts`, which uses:
+```typescript
+import { decode as decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
+```
+
+This import is broken because the Deno standard library reorganized its encoding modules. The function fails to boot entirely, so it can't respond to OPTIONS preflight requests - this causes the CORS error.
 
 ---
 
-## Solution Overview
+## Solution
 
-1. **AuthContext**: After user data loads, detect `invited_to_organization` metadata and call the edge function to activate membership
-2. **RequireOrganization**: Add check for `invited_to_organization` metadata to prevent premature redirect to onboarding
-3. **Onboarding page**: Add safeguard to redirect invited users away from this page
+Update `supabase/functions/_shared/monday.ts` to use the correct Deno standard library import. In newer versions of the Deno standard library, base64 encoding is available from `@std/encoding`:
+
+**Option A - Use npm specifier (recommended for stability):**
+```typescript
+// Use built-in atob/btoa or a stable approach
+```
+
+**Option B - Use correct Deno std path:**
+```typescript
+import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
+// Note: The function is named decodeBase64, not decode
+```
 
 ---
 
@@ -22,236 +41,78 @@ When invited users click "Accept Invitation" from their email, they land on `/on
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/contexts/AuthContext.tsx` | UPDATE | Add invited member detection and activation logic |
-| `src/components/auth/RequireOrganization.tsx` | UPDATE | Add check for `invited_to_organization` metadata |
-| `src/pages/Onboarding.tsx` | UPDATE | Add redirect for invited users |
+| `supabase/functions/_shared/monday.ts` | UPDATE | Fix base64 import to use correct export name |
 
 ---
 
-## 1. AuthContext.tsx Changes
+## Technical Details
 
-Add a function to check and activate invited members after user data loads:
-
+### Current (Broken)
 ```typescript
-// NEW: State to track activation in progress
-const [activatingMembership, setActivatingMembership] = useState(false);
-
-// NEW: Function to activate invited member
-const activateInvitedMember = useCallback(async (currentUser: User) => {
-  const invitedOrgId = currentUser.user_metadata?.invited_to_organization;
-  
-  if (!invitedOrgId) {
-    return false; // Not an invited member
-  }
-  
-  console.log("Detected invited member, activating membership...");
-  setActivatingMembership(true);
-  
-  try {
-    const { data, error } = await supabase.functions.invoke('activate-invited-member');
-    
-    if (error) {
-      console.error("Error activating membership:", error);
-      return false;
-    }
-    
-    if (data?.success) {
-      console.log("Membership activated, refreshing organization data...");
-      // Refresh organization data to pick up the new membership
-      await fetchOrganization(currentUser.id);
-      return true;
-    }
-    
-    return false;
-  } catch (err) {
-    console.error("Failed to activate invited member:", err);
-    return false;
-  } finally {
-    setActivatingMembership(false);
-  }
-}, [fetchOrganization]);
+import { decode as decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 ```
 
-Update Effect 2 to call activation:
-
+### Fixed Version
 ```typescript
-// Effect 2: Once auth is initialized, load profile + org data for the user.
-useEffect(() => {
-  if (!authInitialized) return;
-
-  if (!user) {
-    setLoading(false);
-    return;
-  }
-
-  let cancelled = false;
-  setLoading(true);
-
-  (async () => {
-    try {
-      const userProfile = await fetchProfile(user.id);
-      if (cancelled) return;
-      setProfile(userProfile);
-      
-      await fetchOrganization(user.id);
-      
-      // NEW: If user has no org but has invitation metadata, activate them
-      // We need to check AFTER fetchOrganization to see if they already have one
-      if (!cancelled) {
-        const invitedOrgId = user.user_metadata?.invited_to_organization;
-        // Only activate if they have the metadata (meaning activation hasn't happened yet)
-        if (invitedOrgId) {
-          await activateInvitedMember(user);
-        }
-      }
-    } catch (error) {
-      console.error("Error loading user data:", error);
-    } finally {
-      if (!cancelled) {
-        setLoading(false);
-      }
-    }
-  })();
-
-  return () => {
-    cancelled = true;
-  };
-}, [authInitialized, user, fetchProfile, fetchOrganization, activateInvitedMember]);
+import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 ```
 
-Include `activatingMembership` in the loading state exposed to components:
+The Deno standard library exports the function as `decodeBase64` (not `decode`). The current code tries to import `decode` and rename it to `decodeBase64`, but `decode` doesn't exist.
+
+Alternatively, we can use the Web API's `atob()` function which is built into Deno and more stable:
 
 ```typescript
-// Update the loading value to include activation state
-value={{
-  // ... existing values
-  loading: loading || activatingMembership,
-}}
-```
-
----
-
-## 2. RequireOrganization.tsx Changes
-
-Add detection for `invited_to_organization` metadata to show loading state while activation happens:
-
-```typescript
-export function RequireOrganization({ children }: RequireOrganizationProps) {
-  const { user, organization, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
+// No import needed - use built-in Web APIs
+function decodeBase64ToUint8Array(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
   }
-
-  // If user has an organization, render children
-  if (organization) {
-    return <>{children}</>;
-  }
-
-  // NEW: Check if user is an invited member (has invitation metadata)
-  // If so, AuthContext should be activating them - show loading
-  const invitedOrgId = user?.user_metadata?.invited_to_organization;
-  if (invitedOrgId) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Activating your membership...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Check if user registered as a member - they shouldn't go to onboarding
-  const registrationType = user?.user_metadata?.registration_type;
-  
-  if (registrationType === "member") {
-    return <Navigate to="/auth" replace />;
-  }
-  
-  // Owner registration - send to onboarding to create org
-  return <Navigate to="/onboarding" replace />;
+  return bytes;
 }
 ```
 
 ---
 
-## 3. Onboarding.tsx Changes
+## Implementation
 
-Add a safeguard to redirect invited users away from this page:
+### Update `monday.ts` - Line 2
 
+Change:
 ```typescript
-export default function Onboarding() {
-  const navigate = useNavigate();
-  const { user, organization, createOrganization, loading: authLoading } = useAuth();
-
-  // ... existing state ...
-
-  // Redirect to dashboard if user already has an organization
-  useEffect(() => {
-    if (!authLoading && organization) {
-      navigate("/", { replace: true });
-    }
-  }, [organization, authLoading, navigate]);
-
-  // NEW: Redirect invited members to member dashboard
-  // They should never see the "Create Organization" page
-  useEffect(() => {
-    if (!authLoading && user) {
-      const invitedOrgId = user.user_metadata?.invited_to_organization;
-      if (invitedOrgId) {
-        // This user is an invited member - redirect to member dashboard
-        // The activation should happen via AuthContext
-        navigate("/member", { replace: true });
-      }
-    }
-  }, [authLoading, user, navigate]);
-
-  // ... rest of component ...
-}
+import { decode as decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 ```
+
+To:
+```typescript
+import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
+```
+
+### Update `decryptToken` function
+
+The function already uses `decodeBase64(encryptedData)` which will work correctly with the renamed import since we're now importing the function with its actual name.
 
 ---
 
-## Flow After Fix
+## Affected Edge Functions
 
-```text
-1. Invited user clicks "Accept Invitation" in email
-   ↓
-2. User lands on /auth page (Supabase magic link flow)
-   ↓
-3. User sets their password (new account created)
-   ↓
-4. Auth state changes → AuthContext loads user data
-   ↓
-5. AuthContext detects user.user_metadata.invited_to_organization
-   ↓
-6. AuthContext calls activate-invited-member edge function
-   ↓
-7. Edge function activates membership, clears metadata
-   ↓
-8. AuthContext refreshes organization data
-   ↓
-9. User now has organization → redirected to /member dashboard
-```
+All edge functions using `_shared/monday.ts` are affected:
+- `get-member-tasks`
+- `get-board-view-data`
+- `get-monday-users`
+- `execute-workflow`
+
+Fixing `monday.ts` will fix all of them simultaneously.
 
 ---
 
-## Edge Cases Handled
+## After Fix
 
-| Scenario | Behavior |
-|----------|----------|
-| Invited user visits `/onboarding` directly | Redirected to `/member` |
-| Activation fails | User stays on loading, error logged |
-| User already activated (no metadata) | Normal flow, no activation called |
-| Owner signs up | Normal onboarding flow unchanged |
+1. Deploy the updated `_shared/monday.ts`
+2. All edge functions will boot correctly
+3. CORS preflight requests will be handled properly
+4. Member dashboard will load tasks successfully
 
 ---
 
@@ -259,7 +120,5 @@ export default function Onboarding() {
 
 | File | Lines Changed | Description |
 |------|---------------|-------------|
-| `src/contexts/AuthContext.tsx` | ~30 lines | Add activation logic and state |
-| `src/components/auth/RequireOrganization.tsx` | ~15 lines | Add invitation metadata check |
-| `src/pages/Onboarding.tsx` | ~10 lines | Add redirect for invited users |
+| `supabase/functions/_shared/monday.ts` | 1 line | Fix base64 import to use correct export name `decodeBase64` |
 
