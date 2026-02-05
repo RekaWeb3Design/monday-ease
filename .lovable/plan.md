@@ -1,18 +1,10 @@
 
 
-# Fix: Send Invitation Email via Resend
+# Invite Flow and Member Experience Polish
 
-## Problem
+## Overview
 
-The `adminClient.auth.admin.generateLink()` function only **generates** the password recovery link but does **not send an email**. The current comment at line 121-122 incorrectly assumes it triggers the auth-email-hook.
-
-Result: Invited users never receive their invitation email.
-
----
-
-## Solution
-
-After generating the link, manually send the invitation email using the Resend API with MondayEase branding.
+This plan implements four improvements to personalize the invite flow and member experience by showing the organization name throughout the journey.
 
 ---
 
@@ -20,172 +12,242 @@ After generating the link, manually send the invitation email using the Resend A
 
 | File | Action | Description |
 |------|--------|-------------|
-| `supabase/functions/invite-member/index.ts` | UPDATE | Add Resend email sending after generateLink |
+| `supabase/functions/invite-member/index.ts` | UPDATE | Fetch org name, include in email subject and body |
+| `src/pages/Auth.tsx` | UPDATE | Fetch & display org name on password setup page |
+| `src/pages/MemberDashboard.tsx` | UPDATE | Already uses first name correctly - minor cleanup |
+| `src/components/layout/AppSidebar.tsx` | UPDATE | Display organization name in sidebar footer |
 
 ---
 
-## Implementation
+## 1. Show Organization Name in Invite Email
 
-### Update `invite-member/index.ts` (Lines 105-125)
+### File: `supabase/functions/invite-member/index.ts`
 
-After the `generateLink` call succeeds, extract the action link and send a branded email:
+**Add organization name fetch after owner verification (after line 32):**
 
 ```typescript
-// Step 2: Generate password recovery link
-const siteUrl = Deno.env.get("SITE_URL") || "https://ease-hub-dash.lovable.app";
+// Fetch organization name for personalized email
+const { data: orgData } = await adminClient
+  .from("organizations")
+  .select("name")
+  .eq("id", organizationId)
+  .single();
 
-const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
-  type: 'recovery',
-  email: normalizedEmail,
-  options: {
-    redirectTo: `${siteUrl}/auth`,
-  },
-});
+const orgName = orgData?.name || "a team";
+```
 
-if (linkError) {
-  // Full cleanup: delete user and member record
-  await adminClient.auth.admin.deleteUser(newUser.user.id);
-  await adminClient.from("organization_members").delete().eq("id", newMember.id);
-  console.error("Link generation error:", linkError);
-  return jsonResponse({ error: "Failed to generate invitation link" }, 500);
-}
+**Update email subject (line 151):**
 
-// Extract the recovery link from the response
-const recoveryLink = linkData.properties?.action_link;
+Change:
+```typescript
+subject: "You're invited to join MondayEase",
+```
 
-if (!recoveryLink) {
-  await adminClient.auth.admin.deleteUser(newUser.user.id);
-  await adminClient.from("organization_members").delete().eq("id", newMember.id);
-  console.error("No action_link in generateLink response");
-  return jsonResponse({ error: "Failed to generate recovery link" }, 500);
-}
+To:
+```typescript
+subject: `You're invited to join ${orgName} on MondayEase`,
+```
 
-// Step 3: Send invitation email via Resend
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+**Update email body (lines 173-177):**
 
-if (!RESEND_API_KEY) {
-  console.error("RESEND_API_KEY not configured");
-  // Don't cleanup - user exists, they can use "Forgot Password" as backup
-  return jsonResponse({ success: true, memberId: newMember.id, warning: "Email not sent - API key missing" });
-}
+Change:
+```html
+<h1 style="...">You're Invited!</h1>
+<p style="...">
+  Hi ${displayName.trim()},<br><br>
+  You've been invited to join a team on MondayEase. Click the button below...
+</p>
+```
 
-const logoUrl = "https://yqjugovqhvxoxvrceqqp.supabase.co/storage/v1/object/public/email-assets/mondayease-logo.png?v=1";
-
-const emailResponse = await fetch("https://api.resend.com/emails", {
-  method: "POST",
-  headers: {
-    "Authorization": `Bearer ${RESEND_API_KEY}`,
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    from: "MondayEase <noreply@mondayease.com>",
-    to: normalizedEmail,
-    subject: "You're invited to join MondayEase",
-    html: `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        </head>
-        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5;">
-          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
-            <tr>
-              <td align="center">
-                <table width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-                  <!-- Header -->
-                  <tr>
-                    <td style="background-color: #1a1a2e; padding: 32px; text-align: center;">
-                      <img src="${logoUrl}" alt="MondayEase" width="180" style="display: block; margin: 0 auto;">
-                    </td>
-                  </tr>
-                  <!-- Content -->
-                  <tr>
-                    <td style="padding: 40px 32px;">
-                      <h1 style="margin: 0 0 16px; font-size: 24px; font-weight: 600; color: #1a1a2e;">You're Invited!</h1>
-                      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.6; color: #4a4a68;">
-                        Hi ${displayName.trim()},<br><br>
-                        You've been invited to join a team on MondayEase. Click the button below to set up your password and access your account.
-                      </p>
-                      <table width="100%" cellpadding="0" cellspacing="0">
-                        <tr>
-                          <td align="center" style="padding: 16px 0;">
-                            <a href="${recoveryLink}" style="display: inline-block; background-color: #01cb72; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 6px;">
-                              Set Up Your Account
-                            </a>
-                          </td>
-                        </tr>
-                      </table>
-                      <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.5; color: #6b6b80;">
-                        If you weren't expecting this invitation, you can safely ignore this email.
-                      </p>
-                    </td>
-                  </tr>
-                  <!-- Footer -->
-                  <tr>
-                    <td style="background-color: #f8f8fa; padding: 24px 32px; text-align: center; border-top: 1px solid #e8e8ec;">
-                      <p style="margin: 0; font-size: 12px; color: #9090a0;">
-                        © 2025 MondayEase. All rights reserved.
-                      </p>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-        </body>
-      </html>
-    `,
-  }),
-});
-
-if (!emailResponse.ok) {
-  const errorText = await emailResponse.text();
-  console.error("Email send error:", errorText);
-  // Don't cleanup - user exists, they can use "Forgot Password" as backup
-  return jsonResponse({ success: true, memberId: newMember.id, warning: "User created but email failed to send" });
-}
-
-console.log(`Invitation email sent to ${email} for org ${organizationId}`);
-
-return jsonResponse({ success: true, memberId: newMember.id });
+To:
+```html
+<h1 style="...">You're Invited!</h1>
+<p style="...">
+  Hi ${displayName.trim().split(' ')[0]},<br><br>
+  You've been invited to join <strong>${orgName}</strong> on MondayEase. Click the button below...
+</p>
 ```
 
 ---
 
-## Email Design
+## 2. Show Organization Name on Password Setup Page
 
-The invitation email follows MondayEase branding:
-- Dark header with logo
-- Primary green (#01cb72) CTA button
-- Clean, professional layout
-- Personalized greeting with the member's display name
-- Clear call-to-action
+### File: `src/pages/Auth.tsx`
+
+**Add state for invited org name (after line 77):**
+
+```typescript
+const [invitedOrgName, setInvitedOrgName] = useState<string | null>(null);
+```
+
+**Add effect to fetch org name when on password setup (after line 88):**
+
+```typescript
+// Fetch organization name for invited users on password setup
+useEffect(() => {
+  async function fetchInvitedOrgName() {
+    if (!showPasswordSetup || !user?.user_metadata?.invited_to_organization) {
+      return;
+    }
+    
+    try {
+      const { data } = await supabase
+        .from("organizations")
+        .select("name")
+        .eq("id", user.user_metadata.invited_to_organization)
+        .single();
+      
+      if (data) {
+        setInvitedOrgName(data.name);
+      }
+    } catch (err) {
+      console.error("Error fetching invited org:", err);
+    }
+  }
+  
+  fetchInvitedOrgName();
+}, [showPasswordSetup, user]);
+```
+
+**Update password setup UI (around lines 326-330):**
+
+Change:
+```tsx
+<CardHeader className="text-center pb-2">
+  <h2 className="text-xl font-semibold">Set Your Password</h2>
+  <p className="text-sm text-muted-foreground">
+    Create a password to complete your account setup
+  </p>
+</CardHeader>
+```
+
+To:
+```tsx
+<CardHeader className="text-center pb-2">
+  <h2 className="text-xl font-semibold">Set Your Password</h2>
+  {invitedOrgName && (
+    <p className="text-sm text-primary font-medium mt-1">
+      You're joining {invitedOrgName}
+    </p>
+  )}
+  <p className="text-sm text-muted-foreground">
+    Create a password to complete your account setup
+  </p>
+</CardHeader>
+```
 
 ---
 
-## Edge Cases Handled
+## 3. Member Dashboard First Name Greeting
 
-| Scenario | Behavior |
-|----------|----------|
-| No recovery link in response | Full cleanup, return error |
-| RESEND_API_KEY missing | User created (can use Forgot Password), warning returned |
-| Email fails to send | User created (can use Forgot Password), warning returned |
-| Email sends successfully | Full success response |
+### File: `src/pages/MemberDashboard.tsx`
 
----
+**Current implementation (line 12) already extracts first name:**
+```typescript
+const displayName = profile?.full_name?.split(" ")[0] || "there";
+```
 
-## Prerequisites
-
-The `RESEND_API_KEY` secret is already configured in the project.
-
-The logo should be uploaded to the `email-assets` storage bucket. If not present, the email will still work but without the logo image.
+This is already correct. No changes needed.
 
 ---
 
-## Files Changed
+## 4. Show Organization Name in Member Sidebar
+
+### File: `src/components/layout/AppSidebar.tsx`
+
+**Add organization from auth context (line 66):**
+
+The sidebar already has access to `useAuth()` - just need to destructure organization:
+
+Change:
+```typescript
+const { profile, memberRole } = useAuth();
+```
+
+To:
+```typescript
+const { profile, memberRole, organization } = useAuth();
+```
+
+**Update sidebar footer user section (lines 228-243):**
+
+Add organization name display below the user's email:
+
+```tsx
+{/* User section */}
+<div className="flex items-center gap-3 p-3">
+  <Avatar className="h-8 w-8 shrink-0">
+    <AvatarFallback className="bg-primary text-primary-foreground text-sm">
+      {avatarInitial}
+    </AvatarFallback>
+  </Avatar>
+  {!isCollapsed && (
+    <div className="flex flex-col overflow-hidden">
+      <span className="truncate text-sm font-medium text-sidebar-foreground">
+        {displayName}
+      </span>
+      {organization && (
+        <span className="truncate text-xs text-primary/80">
+          {organization.name}
+        </span>
+      )}
+      <span className="truncate text-xs text-sidebar-foreground/70">
+        {profile?.email || "user@example.com"}
+      </span>
+    </div>
+  )}
+</div>
+```
+
+---
+
+## Complete Flow After Changes
+
+```text
+1. Owner invites "John Smith" to "Acme Corp"
+   ↓
+2. Email arrives: 
+   - Subject: "You're invited to join Acme Corp on MondayEase"
+   - Body: "Hi John, You've been invited to join Acme Corp on MondayEase..."
+   ↓
+3. John clicks "Set Up Your Account" → /auth
+   ↓
+4. Password setup page shows:
+   - "Set Your Password"
+   - "You're joining Acme Corp" (green highlight)
+   - Password form
+   ↓
+5. John sets password → redirected to /member
+   ↓
+6. Member Dashboard shows:
+   - "Welcome back, John!" (first name only)
+   - Sidebar footer: "John Smith" + "Acme Corp" + email
+```
+
+---
+
+## Visual Changes
+
+### Invite Email
+- Subject personalized with org name
+- Body greeting uses first name only
+- Organization name in bold
+
+### Password Setup Page
+- New line showing "You're joining [Org Name]" in primary color
+- Provides reassurance they're joining the right team
+
+### Sidebar Footer
+- Organization name displayed between user name and email
+- Uses primary color accent for visibility
+
+---
+
+## Files Summary
 
 | File | Lines Changed | Description |
 |------|---------------|-------------|
-| `supabase/functions/invite-member/index.ts` | ~70 lines added | Add email extraction and Resend sending |
+| `supabase/functions/invite-member/index.ts` | ~10 lines | Fetch org, personalize subject and body |
+| `src/pages/Auth.tsx` | ~25 lines | Add state, effect, and UI for org name |
+| `src/components/layout/AppSidebar.tsx` | ~8 lines | Add org to destructure, display in footer |
 
