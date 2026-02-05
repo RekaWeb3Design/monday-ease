@@ -1,116 +1,138 @@
 
-
-# Bug Fixes: Sidebar Styling, Settings Position, and Org Logo RLS
+# Move Sidebar Collapse Toggle to Header + Add Org Logo
 
 ## Overview
 
-This plan addresses three issues: organization name visibility in the dark sidebar, Settings link positioning in the footer, and the RLS policy for org logo uploads.
+This plan relocates the collapse/expand toggle from the sidebar footer to the header (next to the MondayEase logo) following standard UX patterns, and adds the organization logo next to the organization name.
 
 ---
 
 ## Changes Summary
 
-| File/Resource | Action | Description |
-|---------------|--------|-------------|
-| `src/components/layout/AppSidebar.tsx` | UPDATE | Fix organization name text color to white |
-| `src/components/layout/AppSidebar.tsx` | UPDATE | Add Settings link to footer above Sign Out |
-| `src/components/layout/AppSidebar.tsx` | UPDATE | Remove Settings from main nav items |
-| Supabase Migration | CREATE | Fix RLS policies for org-logos bucket with proper type casting |
+| Location | Action | Description |
+|----------|--------|-------------|
+| SidebarHeader (lines 77-91) | UPDATE | Add collapse toggle button next to logo |
+| Organization section (lines 94-104) | UPDATE | Add org logo avatar before org name |
+| SidebarFooter (lines 213-258) | UPDATE | Remove collapse toggle, keep only Settings + Sign Out |
+| Imports | UPDATE | Add `ChevronLeft`, `ChevronRight` icons and `Button` component |
 
 ---
 
-## 1. Fix Organization Name Text Color
+## 1. Update Imports
 
-### File: `src/components/layout/AppSidebar.tsx`
+Add the missing imports:
 
-**Issue:** The organization name uses `text-primary` (green) which can be hard to read against the dark sidebar background.
-
-**Lines 99-104 - Change to:**
 ```tsx
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { supabase } from "@/integrations/supabase/client";
+```
+
+Note: `ChevronsLeft` and `ChevronsRight` can be removed since we'll use the single chevron variants instead.
+
+---
+
+## 2. Update SidebarHeader with Collapse Toggle
+
+**Replace lines 77-91 with:**
+
+```tsx
+<SidebarHeader className="border-b border-sidebar-border p-4">
+  <div className="flex items-center justify-between">
+    <div className="flex items-center">
+      {isCollapsed ? (
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
+          M
+        </div>
+      ) : (
+        <img
+          src={mondayeaseLogo}
+          alt="MondayEase"
+          className="h-10 w-auto"
+        />
+      )}
+    </div>
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={toggleSidebar}
+      className="h-8 w-8 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+    >
+      {isCollapsed ? (
+        <ChevronRight className="h-4 w-4" />
+      ) : (
+        <ChevronLeft className="h-4 w-4" />
+      )}
+    </Button>
+  </div>
+</SidebarHeader>
+```
+
+**Key changes:**
+- Wrapped logo in flex container with `justify-between`
+- Added toggle button on the right side
+- Uses `ChevronLeft`/`ChevronRight` (single arrow) instead of double chevrons
+- Toggle button has subtle styling that fits the dark sidebar
+
+---
+
+## 3. Add Organization Logo to Org Name Section
+
+**Replace lines 94-104 with:**
+
+```tsx
+{/* Organization name header with logo (visible when expanded) */}
 {!isCollapsed && organization && (
   <div className="px-4 pt-4 pb-2">
-    <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">
+    <p className="text-[10px] uppercase tracking-wider text-sidebar-foreground/50 mb-2">
       Organization
     </p>
-    <p className="text-sm font-semibold text-white truncate">
-      {organization.name}
-    </p>
+    <div className="flex items-center gap-2">
+      <Avatar className="h-6 w-6">
+        {organization.logo_url ? (
+          <AvatarImage 
+            src={`${supabase.storage.from('org-logos').getPublicUrl(organization.logo_url).data.publicUrl}?t=${Date.now()}`}
+            alt={organization.name}
+          />
+        ) : null}
+        <AvatarFallback className="bg-primary/20 text-primary text-xs">
+          {organization.name.charAt(0).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <p className="text-sm font-semibold text-sidebar-accent-foreground truncate">
+        {organization.name}
+      </p>
+    </div>
   </div>
 )}
 ```
 
-**Changes:**
-- Line 99: Change `text-sidebar-foreground/50` to `text-gray-400`
-- Line 102: Change `text-primary` to `text-white`
+**Key changes:**
+- Added small Avatar (24x24) before org name
+- Shows org logo if available, fallback to first letter
+- Uses cache-busting URL for logo freshness
 
 ---
 
-## 2. Move Settings to Sidebar Footer
+## 4. Simplify SidebarFooter
 
-### File: `src/components/layout/AppSidebar.tsx`
+**Replace lines 213-258 with:**
 
-**Step A: Remove Settings from main nav arrays**
-
-**Lines 38-46 (ownerNavItems):**
-```tsx
-const ownerNavItems: NavItem[] = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Organization", url: "/organization", icon: Building2 },
-  { title: "Integrations", url: "/integrations", icon: Plug },
-  { title: "Boards", url: "/boards", icon: LayoutGrid },
-  { title: "Templates", url: "/templates", icon: Zap },
-  { title: "Activity", url: "/activity", icon: Activity },
-  // Remove Settings from here
-];
-```
-
-**Lines 49-52 (memberNavItems):**
-```tsx
-const memberNavItems: NavItem[] = [
-  { title: "My Tasks", url: "/member", icon: ClipboardList },
-  // Remove Settings from here
-];
-```
-
-**Step B: Add Settings link to footer**
-
-Add import for `Link`:
-```tsx
-import { Link } from "react-router-dom";
-```
-
-**Lines 215-246 - Replace footer with:**
 ```tsx
 <SidebarFooter className="border-t border-sidebar-border p-2">
   <SidebarMenu>
-    {/* Collapse toggle */}
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        onClick={toggleSidebar}
-        tooltip={isCollapsed ? "Expand" : "Collapse"}
-        className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-      >
-        {isCollapsed ? (
-          <ChevronsRight className="h-4 w-4" />
-        ) : (
-          <>
-            <ChevronsLeft className="h-4 w-4" />
-            <span>Collapse</span>
-          </>
-        )}
-      </SidebarMenuButton>
-    </SidebarMenuItem>
-
     {/* Settings */}
     <SidebarMenuItem>
       <SidebarMenuButton asChild tooltip="Settings">
-        <Link 
-          to="/settings" 
+        <NavLink
+          to="/settings"
           className="flex items-center gap-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          activeClassName="bg-sidebar-accent text-primary font-medium"
         >
           <Settings className="h-4 w-4" />
           {!isCollapsed && <span>Settings</span>}
-        </Link>
+        </NavLink>
       </SidebarMenuButton>
     </SidebarMenuItem>
 
@@ -129,84 +151,40 @@ import { Link } from "react-router-dom";
 </SidebarFooter>
 ```
 
----
-
-## 3. Fix Org Logo Upload RLS Policy
-
-### Database Migration
-
-The current RLS policies for the `org-logos` bucket need proper type casting to match the organization ID correctly.
-
-```sql
--- Drop existing policies if they exist
-DROP POLICY IF EXISTS "Org owners can upload logo" ON storage.objects;
-DROP POLICY IF EXISTS "Org owners can update logo" ON storage.objects;
-
--- Create corrected INSERT policy with explicit type casting
-CREATE POLICY "Org owners can upload logo" ON storage.objects
-FOR INSERT TO authenticated
-WITH CHECK (
-  bucket_id = 'org-logos' AND
-  EXISTS (
-    SELECT 1 FROM public.organizations 
-    WHERE id::text = (storage.foldername(name))[1]::text
-    AND owner_id = auth.uid()
-  )
-);
-
--- Create corrected UPDATE policy
-CREATE POLICY "Org owners can update logo" ON storage.objects
-FOR UPDATE TO authenticated
-USING (
-  bucket_id = 'org-logos' AND
-  EXISTS (
-    SELECT 1 FROM public.organizations 
-    WHERE id::text = (storage.foldername(name))[1]::text
-    AND owner_id = auth.uid()
-  )
-)
-WITH CHECK (
-  bucket_id = 'org-logos' AND
-  EXISTS (
-    SELECT 1 FROM public.organizations 
-    WHERE id::text = (storage.foldername(name))[1]::text
-    AND owner_id = auth.uid()
-  )
-);
-
--- Add DELETE policy so owners can replace logos
-CREATE POLICY "Org owners can delete logo" ON storage.objects
-FOR DELETE TO authenticated
-USING (
-  bucket_id = 'org-logos' AND
-  EXISTS (
-    SELECT 1 FROM public.organizations 
-    WHERE id::text = (storage.foldername(name))[1]::text
-    AND owner_id = auth.uid()
-  )
-);
-```
-
-**Key Fix:** The explicit `::text` casting on both `id` and the folder name array element ensures proper comparison between the UUID and the extracted folder name string.
+**Key changes:**
+- Removed the Collapse toggle menu item (lines 215-231)
+- Footer now only contains Settings and Sign Out
 
 ---
 
-## Visual Changes
+## Visual Summary
 
-### Sidebar Footer (After)
+### Before
 ```text
 ┌─────────────────────────────┐
-│ [<<] Collapse               │
-│ [⚙️] Settings               │
-│ [→] Sign Out  (red)         │
+│       [MondayEase Logo]     │  <- Header (no toggle)
+├─────────────────────────────┤
+│ ORGANIZATION                │
+│ Acme Corp                   │
+│ ...nav items...             │
+├─────────────────────────────┤
+│ [<<] Collapse               │  <- Toggle in footer
+│ [⚙] Settings                │
+│ [→] Sign Out                │
 └─────────────────────────────┘
 ```
 
-### Organization Header (After)
+### After
 ```text
 ┌─────────────────────────────┐
-│ ORGANIZATION     (gray)     │
-│ Acme Corp        (white)    │
+│ [Logo]                 [<]  │  <- Toggle in header
+├─────────────────────────────┤
+│ ORGANIZATION                │
+│ [🏢] Acme Corp              │  <- Org logo added
+│ ...nav items...             │
+├─────────────────────────────┤
+│ [⚙] Settings                │  <- Cleaner footer
+│ [→] Sign Out                │
 └─────────────────────────────┘
 ```
 
@@ -216,6 +194,4 @@ USING (
 
 | File | Lines Changed | Description |
 |------|---------------|-------------|
-| `src/components/layout/AppSidebar.tsx` | ~15 lines | Fix text colors + restructure footer |
-| Supabase Migration | ~40 lines | Fix RLS policies with proper casting |
-
+| `src/components/layout/AppSidebar.tsx` | ~35 lines | Move toggle to header, add org logo, simplify footer |
