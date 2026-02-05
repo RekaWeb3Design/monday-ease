@@ -1,10 +1,10 @@
 
 
-# Invite Flow and Member Experience Polish
+# UI Improvements: Organization Visibility and Menu Access Control
 
 ## Overview
 
-This plan implements four improvements to personalize the invite flow and member experience by showing the organization name throughout the journey.
+This plan implements three UI improvements to enhance organization visibility and properly restrict Board Views access based on user role.
 
 ---
 
@@ -12,234 +12,164 @@ This plan implements four improvements to personalize the invite flow and member
 
 | File | Action | Description |
 |------|--------|-------------|
-| `supabase/functions/invite-member/index.ts` | UPDATE | Fetch org name, include in email subject and body |
-| `src/pages/Auth.tsx` | UPDATE | Fetch & display org name on password setup page |
-| `src/pages/MemberDashboard.tsx` | UPDATE | Already uses first name correctly - minor cleanup |
-| `src/components/layout/AppSidebar.tsx` | UPDATE | Display organization name in sidebar footer |
+| `src/components/layout/TopNavbar.tsx` | UPDATE | Add organization name to profile dropdown |
+| `src/components/layout/AppSidebar.tsx` | UPDATE | Add org name header above nav items + restrict Board Views to owners |
 
 ---
 
-## 1. Show Organization Name in Invite Email
+## 1. Show Organization Name in Profile Dropdown
 
-### File: `supabase/functions/invite-member/index.ts`
+### File: `src/components/layout/TopNavbar.tsx`
 
-**Add organization name fetch after owner verification (after line 32):**
-
-```typescript
-// Fetch organization name for personalized email
-const { data: orgData } = await adminClient
-  .from("organizations")
-  .select("name")
-  .eq("id", organizationId)
-  .single();
-
-const orgName = orgData?.name || "a team";
-```
-
-**Update email subject (line 151):**
-
-Change:
-```typescript
-subject: "You're invited to join MondayEase",
-```
-
-To:
-```typescript
-subject: `You're invited to join ${orgName} on MondayEase`,
-```
-
-**Update email body (lines 173-177):**
-
-Change:
-```html
-<h1 style="...">You're Invited!</h1>
-<p style="...">
-  Hi ${displayName.trim()},<br><br>
-  You've been invited to join a team on MondayEase. Click the button below...
-</p>
-```
-
-To:
-```html
-<h1 style="...">You're Invited!</h1>
-<p style="...">
-  Hi ${displayName.trim().split(' ')[0]},<br><br>
-  You've been invited to join <strong>${orgName}</strong> on MondayEase. Click the button below...
-</p>
-```
-
----
-
-## 2. Show Organization Name on Password Setup Page
-
-### File: `src/pages/Auth.tsx`
-
-**Add state for invited org name (after line 77):**
+**Update auth hook destructuring (line 19):**
 
 ```typescript
-const [invitedOrgName, setInvitedOrgName] = useState<string | null>(null);
+const { profile, signOut, organization } = useAuth();
 ```
 
-**Add effect to fetch org name when on password setup (after line 88):**
-
-```typescript
-// Fetch organization name for invited users on password setup
-useEffect(() => {
-  async function fetchInvitedOrgName() {
-    if (!showPasswordSetup || !user?.user_metadata?.invited_to_organization) {
-      return;
-    }
-    
-    try {
-      const { data } = await supabase
-        .from("organizations")
-        .select("name")
-        .eq("id", user.user_metadata.invited_to_organization)
-        .single();
-      
-      if (data) {
-        setInvitedOrgName(data.name);
-      }
-    } catch (err) {
-      console.error("Error fetching invited org:", err);
-    }
-  }
-  
-  fetchInvitedOrgName();
-}, [showPasswordSetup, user]);
-```
-
-**Update password setup UI (around lines 326-330):**
+**Update the dropdown content (lines 60-66):**
 
 Change:
 ```tsx
-<CardHeader className="text-center pb-2">
-  <h2 className="text-xl font-semibold">Set Your Password</h2>
-  <p className="text-sm text-muted-foreground">
-    Create a password to complete your account setup
-  </p>
-</CardHeader>
+<DropdownMenuContent align="end" className="w-56">
+  <div className="flex items-center justify-start gap-2 p-2">
+    <div className="flex flex-col space-y-1 leading-none">
+      <p className="font-medium">{displayName}</p>
+      <p className="text-xs text-muted-foreground">{profile?.email}</p>
+    </div>
+  </div>
 ```
 
 To:
 ```tsx
-<CardHeader className="text-center pb-2">
-  <h2 className="text-xl font-semibold">Set Your Password</h2>
-  {invitedOrgName && (
-    <p className="text-sm text-primary font-medium mt-1">
-      You're joining {invitedOrgName}
-    </p>
-  )}
-  <p className="text-sm text-muted-foreground">
-    Create a password to complete your account setup
-  </p>
-</CardHeader>
+<DropdownMenuContent align="end" className="w-56">
+  <div className="flex items-center justify-start gap-2 p-2">
+    <div className="flex flex-col space-y-1 leading-none">
+      <p className="font-medium">{displayName}</p>
+      <p className="text-xs text-muted-foreground">{profile?.email}</p>
+      {organization && (
+        <p className="text-xs text-primary font-medium">{organization.name}</p>
+      )}
+    </div>
+  </div>
 ```
 
 ---
 
-## 3. Member Dashboard First Name Greeting
-
-### File: `src/pages/MemberDashboard.tsx`
-
-**Current implementation (line 12) already extracts first name:**
-```typescript
-const displayName = profile?.full_name?.split(" ")[0] || "there";
-```
-
-This is already correct. No changes needed.
-
----
-
-## 4. Show Organization Name in Member Sidebar
+## 2. Show Organization Name Above Navigation in Sidebar
 
 ### File: `src/components/layout/AppSidebar.tsx`
 
-**Add organization from auth context (line 66):**
+**Add organization header inside SidebarContent (before the first SidebarGroup at line 103):**
 
-The sidebar already has access to `useAuth()` - just need to destructure organization:
+```tsx
+<SidebarContent>
+  {/* Organization name header (visible when expanded) */}
+  {!isCollapsed && organization && (
+    <div className="px-4 pt-4 pb-2">
+      <p className="text-[10px] uppercase tracking-wider text-sidebar-foreground/50 mb-1">
+        Organization
+      </p>
+      <p className="text-sm font-semibold text-primary truncate">
+        {organization.name}
+      </p>
+    </div>
+  )}
 
-Change:
-```typescript
-const { profile, memberRole } = useAuth();
+  <SidebarGroup>
+    {/* ... existing nav items ... */}
+  </SidebarGroup>
+```
+
+This displays the organization name prominently above all navigation items so members immediately know which organization they're in.
+
+---
+
+## 3. Hide Board Views from Non-Owners
+
+### File: `src/components/layout/AppSidebar.tsx`
+
+**Modify the Board Views section (lines 125-185):**
+
+The current code shows Board Views to all authenticated users. We need to wrap it with an owner check.
+
+Change (lines 125-126):
+```tsx
+{/* Board Views Section - shown for all authenticated users */}
+{activeViews.length > 0 && (
 ```
 
 To:
-```typescript
-const { profile, memberRole, organization } = useAuth();
-```
-
-**Update sidebar footer user section (lines 228-243):**
-
-Add organization name display below the user's email:
-
 ```tsx
-{/* User section */}
-<div className="flex items-center gap-3 p-3">
-  <Avatar className="h-8 w-8 shrink-0">
-    <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-      {avatarInitial}
-    </AvatarFallback>
-  </Avatar>
-  {!isCollapsed && (
-    <div className="flex flex-col overflow-hidden">
-      <span className="truncate text-sm font-medium text-sidebar-foreground">
-        {displayName}
-      </span>
-      {organization && (
-        <span className="truncate text-xs text-primary/80">
-          {organization.name}
-        </span>
-      )}
-      <span className="truncate text-xs text-sidebar-foreground/70">
-        {profile?.email || "user@example.com"}
-      </span>
-    </div>
-  )}
-</div>
+{/* Board Views Section - shown only for owners */}
+{isOwner && activeViews.length > 0 && (
 ```
+
+The second Board Views block (lines 187-207) already has `isOwner &&` check, so that's correct.
+
+**Result:**
+- Members see: My Tasks, Settings (no Board Views)
+- Owners see: Dashboard, Organization, Integrations, Boards, Templates, Activity, Settings, + Board Views section
 
 ---
 
-## Complete Flow After Changes
+## Visual Summary
 
+### Profile Dropdown (Top Right)
 ```text
-1. Owner invites "John Smith" to "Acme Corp"
-   ↓
-2. Email arrives: 
-   - Subject: "You're invited to join Acme Corp on MondayEase"
-   - Body: "Hi John, You've been invited to join Acme Corp on MondayEase..."
-   ↓
-3. John clicks "Set Up Your Account" → /auth
-   ↓
-4. Password setup page shows:
-   - "Set Your Password"
-   - "You're joining Acme Corp" (green highlight)
-   - Password form
-   ↓
-5. John sets password → redirected to /member
-   ↓
-6. Member Dashboard shows:
-   - "Welcome back, John!" (first name only)
-   - Sidebar footer: "John Smith" + "Acme Corp" + email
+┌─────────────────────┐
+│ John Smith          │
+│ john@email.com      │
+│ Acme Corp           │ ← NEW (primary color)
+├─────────────────────┤
+│ Profile             │
+│ Settings            │
+├─────────────────────┤
+│ Sign out            │
+└─────────────────────┘
 ```
 
----
+### Sidebar (For Members)
+```text
+┌───────────────────────────┐
+│      [MondayEase Logo]    │
+├───────────────────────────┤
+│ ORGANIZATION              │ ← NEW
+│ Acme Corp                 │ ← NEW (primary color)
+├───────────────────────────┤
+│ 📋 My Tasks               │
+│ ⚙️ Settings               │
+│                           │
+│ (No Board Views section)  │ ← HIDDEN for members
+├───────────────────────────┤
+│ [User avatar + info]      │
+└───────────────────────────┘
+```
 
-## Visual Changes
-
-### Invite Email
-- Subject personalized with org name
-- Body greeting uses first name only
-- Organization name in bold
-
-### Password Setup Page
-- New line showing "You're joining [Org Name]" in primary color
-- Provides reassurance they're joining the right team
-
-### Sidebar Footer
-- Organization name displayed between user name and email
-- Uses primary color accent for visibility
+### Sidebar (For Owners)
+```text
+┌───────────────────────────┐
+│      [MondayEase Logo]    │
+├───────────────────────────┤
+│ ORGANIZATION              │
+│ Acme Corp                 │
+├───────────────────────────┤
+│ 📊 Dashboard              │
+│ 🏢 Organization           │
+│ 🔌 Integrations           │
+│ 📋 Boards                 │
+│ ⚡ Templates              │
+│ 📈 Activity               │
+│ ⚙️ Settings               │
+├───────────────────────────┤
+│ BOARD VIEWS               │ ← VISIBLE for owners
+│   📊 Sales Pipeline       │
+│   📋 Project Status       │
+│   ⚙️ Manage views         │
+├───────────────────────────┤
+│ [User avatar + info]      │
+└───────────────────────────┘
+```
 
 ---
 
@@ -247,7 +177,6 @@ Add organization name display below the user's email:
 
 | File | Lines Changed | Description |
 |------|---------------|-------------|
-| `supabase/functions/invite-member/index.ts` | ~10 lines | Fetch org, personalize subject and body |
-| `src/pages/Auth.tsx` | ~25 lines | Add state, effect, and UI for org name |
-| `src/components/layout/AppSidebar.tsx` | ~8 lines | Add org to destructure, display in footer |
+| `src/components/layout/TopNavbar.tsx` | ~5 lines | Add organization to profile dropdown |
+| `src/components/layout/AppSidebar.tsx` | ~12 lines | Add org header + restrict Board Views |
 
