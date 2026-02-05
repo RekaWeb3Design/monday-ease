@@ -72,25 +72,31 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
         throw new Error("Organization or user not available");
       }
 
-      const { error: insertError } = await supabase
-        .from("organization_members")
-        .insert({
-          organization_id: organization.id,
-          user_id: null,
+      const { data, error } = await supabase.functions.invoke("invite-member", {
+        body: {
           email: email.toLowerCase().trim(),
-          display_name: displayName.trim(),
-          role: "member",
-          status: "pending",
-          invited_at: new Date().toISOString(),
-        });
+          displayName: displayName.trim(),
+          organizationId: organization.id,
+        },
+      });
 
-      if (insertError) {
+      if (error) {
         toast({
           title: "Error",
-          description: insertError.message || "Failed to invite member.",
+          description: error.message || "Failed to invite member.",
           variant: "destructive",
         });
-        throw insertError;
+        throw error;
+      }
+
+      if (!data?.success) {
+        const errorMessage = data?.error || "Failed to invite member.";
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        });
+        throw new Error(errorMessage);
       }
 
       toast({

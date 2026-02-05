@@ -8,3 +8,12 @@ verify_jwt = false
 
 [functions.get-board-view-data]
 verify_jwt = false
+
+[functions.invite-member]
+verify_jwt = false
+
+[functions.activate-invited-member]
+verify_jwt = false
+
+[functions.execute-workflow]
+verify_jwt = false
