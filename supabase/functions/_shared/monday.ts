@@ -1,5 +1,5 @@
-import { decodeBase64 } from "https://deno.land/std@0.220.1/encoding/base64.ts";
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import { decode as decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 
 /**
  * Decrypt an AES-GCM encrypted token.
@@ -63,10 +63,10 @@ export async function getDecryptedMondayToken(
 /**
  * Make a GraphQL request to the Monday.com API.
  */
-export async function callMondayAPI<T = any>(
+export async function callMondayAPI<T = unknown>(
   token: string,
   query: string,
-  variables?: Record<string, any>
+  variables?: Record<string, unknown>
 ): Promise<T> {
   const authHeader = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
 
