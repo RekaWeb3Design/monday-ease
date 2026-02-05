@@ -42,13 +42,11 @@ const ownerNavItems: NavItem[] = [
   { title: "Boards", url: "/boards", icon: LayoutGrid },
   { title: "Templates", url: "/templates", icon: Zap },
   { title: "Activity", url: "/activity", icon: Activity },
-  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 // Member nav items (limited access)
 const memberNavItems: NavItem[] = [
   { title: "My Tasks", url: "/member", icon: ClipboardList },
-  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
@@ -96,10 +94,10 @@ export function AppSidebar() {
         {/* Organization name header (visible when expanded) */}
         {!isCollapsed && organization && (
           <div className="px-4 pt-4 pb-2">
-            <p className="text-[10px] uppercase tracking-wider text-sidebar-foreground/50 mb-1">
+            <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1">
               Organization
             </p>
-            <p className="text-sm font-semibold text-primary truncate">
+            <p className="text-sm font-semibold text-white truncate">
               {organization.name}
             </p>
           </div>
@@ -229,6 +227,20 @@ export function AppSidebar() {
                   <span>Collapse</span>
                 </>
               )}
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+
+          {/* Settings */}
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild tooltip="Settings">
+              <NavLink
+                to="/settings"
+                className="flex items-center gap-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                activeClassName="bg-sidebar-accent text-primary font-medium"
+              >
+                <Settings className="h-4 w-4" />
+                {!isCollapsed && <span>Settings</span>}
+              </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>
 
