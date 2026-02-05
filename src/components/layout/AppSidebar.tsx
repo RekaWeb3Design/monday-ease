@@ -100,6 +100,18 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
+        {/* Organization name header (visible when expanded) */}
+        {!isCollapsed && organization && (
+          <div className="px-4 pt-4 pb-2">
+            <p className="text-[10px] uppercase tracking-wider text-sidebar-foreground/50 mb-1">
+              Organization
+            </p>
+            <p className="text-sm font-semibold text-primary truncate">
+              {organization.name}
+            </p>
+          </div>
+        )}
+
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -122,8 +134,8 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Board Views Section - shown for all authenticated users */}
-        {activeViews.length > 0 && (
+        {/* Board Views Section - shown only for owners */}
+        {isOwner && activeViews.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel className="px-3 text-xs font-medium text-sidebar-foreground/60">
               Board Views
