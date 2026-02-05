@@ -1,6 +1,6 @@
 import { Moon, Sun, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,6 +51,7 @@ export function TopNavbar({ pageTitle = "Dashboard" }: TopNavbarProps) {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-9 w-9 rounded-full">
               <Avatar className="h-8 w-8">
+                <AvatarImage src={profile?.avatar_url || undefined} alt={displayName} />
                 <AvatarFallback className="bg-primary text-primary-foreground">
                   {avatarInitial}
                 </AvatarFallback>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Pencil, Plus, Trash2, Loader2, AlertCircle, Users, Eye, Settings } from "lucide-react";
+import { Pencil, Plus, Trash2, Loader2, AlertCircle, Users, Eye, Settings, Camera } from "lucide-react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -57,6 +58,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Tooltip,
   TooltipContent,
@@ -133,6 +135,15 @@ export default function Organization() {
   const [isViewSheetOpen, setIsViewSheetOpen] = useState(false);
   const [isEditBoardDialogOpen, setIsEditBoardDialogOpen] = useState(false);
   const [memberBoardCounts, setMemberBoardCounts] = useState<Record<string, number>>({});
+
+  // Logo upload states
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  // Sync logoUrl when organization changes
+  useEffect(() => {
+    setLogoUrl(organization?.logo_url || null);
+  }, [organization?.logo_url]);
 
   // Forms
   const inviteForm = useForm<InviteFormData>({
@@ -288,6 +299,68 @@ export default function Organization() {
     }
   };
 
+  // Logo upload handler
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !organization) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Please select an image under 2MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload a JPG, PNG, or WebP image",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    try {
+      const fileExt = file.name.split(".").pop();
+      const filePath = `${organization.id}/logo.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("org-logos")
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("org-logos")
+        .getPublicUrl(filePath);
+
+      const urlWithCacheBust = `${publicUrl}?t=${Date.now()}`;
+
+      const { error: updateError } = await supabase
+        .from("organizations")
+        .update({ logo_url: urlWithCacheBust })
+        .eq("id", organization.id);
+
+      if (updateError) throw updateError;
+
+      setLogoUrl(urlWithCacheBust);
+      await refreshOrganization();
+      toast({ title: "Organization logo updated!" });
+    } catch (err) {
+      console.error("Logo upload error:", err);
+      toast({
+        title: "Upload failed",
+        description: "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
   // Owner-only protection
   if (memberRole !== "owner") {
     return (
@@ -323,8 +396,36 @@ export default function Organization() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <CardTitle className="text-2xl">{organization.name}</CardTitle>
+            <div className="flex items-center gap-4">
+              {/* Logo Upload */}
+              <div className="relative group">
+                <Avatar className="h-16 w-16">
+                  <AvatarImage src={logoUrl || undefined} alt={organization.name} />
+                  <AvatarFallback className="text-xl bg-primary text-primary-foreground">
+                    {organization.name.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <Label 
+                  htmlFor="logo-upload" 
+                  className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                >
+                  {isUploadingLogo ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-white" />
+                  ) : (
+                    <Camera className="h-5 w-5 text-white" />
+                  )}
+                </Label>
+                <Input
+                  id="logo-upload"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={handleLogoUpload}
+                  disabled={isUploadingLogo}
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <CardTitle className="text-2xl">{organization.name}</CardTitle>
               <Dialog open={editOrgDialogOpen} onOpenChange={setEditOrgDialogOpen}>
                 <DialogTrigger asChild>
                   <Button
@@ -375,6 +476,7 @@ export default function Organization() {
                   </Form>
                 </DialogContent>
               </Dialog>
+              </div>
             </div>
           </div>
         </CardHeader>

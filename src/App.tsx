@@ -20,6 +20,7 @@ import ExecutionHistory from "./pages/ExecutionHistory";
 import OAuthCallback from "./pages/OAuthCallback";
 import BoardViews from "./pages/BoardViews";
 import CustomViewPage from "./pages/CustomViewPage";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -118,6 +119,18 @@ const App = () => (
                   <RequireOrganization>
                     <AppLayout pageTitle="Activity">
                       <ExecutionHistory />
+                    </AppLayout>
+                  </RequireOrganization>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <RequireOrganization>
+                    <AppLayout pageTitle="Settings">
+                      <Settings />
                     </AppLayout>
                   </RequireOrganization>
                 </ProtectedRoute>
