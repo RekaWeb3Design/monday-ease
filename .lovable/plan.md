@@ -1,9 +1,21 @@
 
-# Edge Function Consolidation Implementation
+
+# Dashboard Improvement Plan
 
 ## Overview
 
-Create three edge functions (`invite-member`, `activate-invited-member`, `execute-workflow`) using the shared modules for consistent authentication, CORS handling, and Monday.com API access.
+Replace placeholder/hardcoded stats with real data fetched from the database, add loading states, and enhance the dashboard with recent activity and quick actions sections.
+
+---
+
+## Data Sources
+
+| Stat | Source | Logic |
+|------|--------|-------|
+| Total Boards | `useBoardConfigs()` | Count of `configs` (active boards for current account) |
+| Team Members | `useOrganizationMembers()` | Count of `members` with `status === 'active'` |
+| Active Templates | `useWorkflowTemplates()` | Count of `templates` |
+| Executions This Month | `useWorkflowExecutions()` | Filter `executions` where `started_at` is in current month |
 
 ---
 
@@ -11,465 +23,312 @@ Create three edge functions (`invite-member`, `activate-invited-member`, `execut
 
 | File | Action | Description |
 |------|--------|-------------|
-| `supabase/functions/invite-member/index.ts` | CREATE | Invite members via Supabase Auth magic link |
-| `supabase/functions/activate-invited-member/index.ts` | CREATE | Activate pending memberships on login |
-| `supabase/functions/execute-workflow/index.ts` | CREATE | Execute n8n workflows with owner's Monday token |
-| `supabase/config.toml` | UPDATE | Add function configs with `verify_jwt = false` |
-| `src/hooks/useOrganizationMembers.ts` | UPDATE | Call edge function instead of direct insert |
+| `src/pages/Dashboard.tsx` | UPDATE | Replace placeholders with real data, add loading states, recent activity, quick actions |
 
 ---
 
-## 1. invite-member/index.ts (NEW)
+## Implementation Details
 
-Creates pending membership and sends invite email via Supabase Auth.
+### 1. Import Required Hooks
 
 ```typescript
-import { getAuthenticatedContext, AuthError } from "../_shared/auth.ts";
-import { jsonResponse, corsPreflightResponse } from "../_shared/cors.ts";
-
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return corsPreflightResponse();
-  }
-
-  try {
-    const { user, supabase, adminClient } = await getAuthenticatedContext(req);
-    const callerId = user.id;
-
-    const { email, displayName, organizationId } = await req.json();
-
-    if (!email || !displayName || !organizationId) {
-      return jsonResponse({ error: "Missing required fields" }, 400);
-    }
-
-    // Verify caller is org owner
-    const { data: membership } = await supabase
-      .from("organization_members")
-      .select("role")
-      .eq("user_id", callerId)
-      .eq("organization_id", organizationId)
-      .eq("status", "active")
-      .single();
-
-    if (!membership || membership.role !== "owner") {
-      return jsonResponse({ error: "Only owners can invite members" }, 403);
-    }
-
-    // Check for duplicate
-    const { data: existing } = await adminClient
-      .from("organization_members")
-      .select("id, status")
-      .eq("organization_id", organizationId)
-      .eq("email", email.toLowerCase().trim())
-      .single();
-
-    if (existing) {
-      return jsonResponse({ 
-        error: existing.status === "pending" 
-          ? "This email has already been invited" 
-          : "This email is already a member"
-      }, 400);
-    }
-
-    // Create pending membership
-    const { data: newMember, error: insertError } = await adminClient
-      .from("organization_members")
-      .insert({
-        organization_id: organizationId,
-        user_id: null,
-        email: email.toLowerCase().trim(),
-        display_name: displayName.trim(),
-        role: "member",
-        status: "pending",
-        invited_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single();
-
-    if (insertError) {
-      console.error("Insert error:", insertError);
-      return jsonResponse({ error: "Failed to create invitation" }, 500);
-    }
-
-    // Send invite via Supabase Auth
-    const siteUrl = Deno.env.get("SITE_URL") || "https://ease-hub-dash.lovable.app";
-    
-    const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(
-      email.toLowerCase().trim(),
-      {
-        redirectTo: `${siteUrl}/auth`,
-        data: {
-          invited_to_organization: organizationId,
-          display_name: displayName.trim(),
-        },
-      }
-    );
-
-    if (inviteError) {
-      // Rollback
-      await adminClient.from("organization_members").delete().eq("id", newMember.id);
-      console.error("Invite email error:", inviteError);
-      return jsonResponse({ error: "Failed to send invitation email" }, 500);
-    }
-
-    console.log(`Invitation sent to ${email} for org ${organizationId}`);
-    return jsonResponse({ success: true, memberId: newMember.id });
-
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
-    console.error("Unexpected error:", error);
-    return jsonResponse({ error: "Internal server error" }, 500);
-  }
-});
+import { useBoardConfigs } from "@/hooks/useBoardConfigs";
+import { useOrganizationMembers } from "@/hooks/useOrganizationMembers";
+import { useWorkflowTemplates } from "@/hooks/useWorkflowTemplates";
+import { useWorkflowExecutions } from "@/hooks/useWorkflowExecutions";
+import { useIntegration } from "@/hooks/useIntegration";
+import { Skeleton } from "@/components/ui/skeleton";
 ```
 
----
-
-## 2. activate-invited-member/index.ts (NEW)
-
-Activates pending membership when invited user signs in.
+### 2. Fetch Real Data
 
 ```typescript
-import { getAuthenticatedContext, AuthError } from "../_shared/auth.ts";
-import { jsonResponse, corsPreflightResponse } from "../_shared/cors.ts";
-
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return corsPreflightResponse();
-  }
-
-  try {
-    const { user, adminClient } = await getAuthenticatedContext(req);
-    const userId = user.id;
-    const userEmail = user.email;
-
-    if (!userEmail) {
-      return jsonResponse({ error: "User email not found" }, 400);
-    }
-
-    // Check metadata for invitation
-    const { data: authUser } = await adminClient.auth.admin.getUserById(userId);
-    const invitedOrgId = authUser?.user?.user_metadata?.invited_to_organization;
-    const displayName = authUser?.user?.user_metadata?.display_name;
-
-    if (!invitedOrgId) {
-      return jsonResponse({ success: false, message: "No pending invitation" });
-    }
-
-    // Find pending membership
-    const { data: pendingMember } = await adminClient
-      .from("organization_members")
-      .select("id, display_name")
-      .eq("organization_id", invitedOrgId)
-      .eq("email", userEmail.toLowerCase())
-      .eq("status", "pending")
-      .is("user_id", null)
-      .single();
-
-    if (!pendingMember) {
-      return jsonResponse({ success: false, message: "No pending membership found" });
-    }
-
-    // Activate membership
-    const { error: updateError } = await adminClient
-      .from("organization_members")
-      .update({
-        user_id: userId,
-        status: "active",
-        joined_at: new Date().toISOString(),
-        display_name: displayName || pendingMember.display_name,
-      })
-      .eq("id", pendingMember.id);
-
-    if (updateError) {
-      console.error("Activation error:", updateError);
-      return jsonResponse({ error: "Failed to activate membership" }, 500);
-    }
-
-    // Update user profile
-    await adminClient
-      .from("user_profiles")
-      .update({
-        user_type: "member",
-        primary_organization_id: invitedOrgId,
-        full_name: displayName || pendingMember.display_name,
-      })
-      .eq("id", userId);
-
-    // Clear invitation metadata
-    await adminClient.auth.admin.updateUserById(userId, {
-      user_metadata: { invited_to_organization: null, display_name: null },
-    });
-
-    console.log(`Membership activated: user ${userId} joined org ${invitedOrgId}`);
-    return jsonResponse({ success: true, organizationId: invitedOrgId });
-
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
-    console.error("Unexpected error:", error);
-    return jsonResponse({ error: "Internal server error" }, 500);
-  }
-});
+const { configs, isLoading: boardsLoading } = useBoardConfigs();
+const { members, isLoading: membersLoading } = useOrganizationMembers();
+const { templates, isLoading: templatesLoading } = useWorkflowTemplates();
+const { executions, isLoading: executionsLoading } = useWorkflowExecutions();
+const { isConnected } = useIntegration();
 ```
 
----
-
-## 3. execute-workflow/index.ts (NEW)
-
-Executes n8n workflows with owner's Monday.com token.
-
-**Note:** Uses corrected column names: `output_result` and `execution_time_ms`
+### 3. Compute Stats Dynamically
 
 ```typescript
-import { getAuthenticatedContext, AuthError } from "../_shared/auth.ts";
-import { jsonResponse, corsPreflightResponse } from "../_shared/cors.ts";
-import { getDecryptedMondayToken, MondayIntegrationError } from "../_shared/monday.ts";
+// Active team members (not pending)
+const activeMembers = members.filter(m => m.status === 'active');
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return corsPreflightResponse();
-  }
-
-  try {
-    const { user, supabase, adminClient } = await getAuthenticatedContext(req);
-    const callerId = user.id;
-
-    const { templateId, inputParams } = await req.json();
-
-    if (!templateId) {
-      return jsonResponse({ error: "Template ID required" }, 400);
-    }
-
-    // Get caller's membership
-    const { data: membership } = await supabase
-      .from("organization_members")
-      .select("organization_id")
-      .eq("user_id", callerId)
-      .eq("status", "active")
-      .single();
-
-    if (!membership) {
-      return jsonResponse({ error: "No active membership" }, 403);
-    }
-
-    // Get template
-    const { data: template } = await supabase
-      .from("workflow_templates")
-      .select("*")
-      .eq("id", templateId)
-      .eq("is_active", true)
-      .single();
-
-    if (!template) {
-      return jsonResponse({ error: "Template not found" }, 404);
-    }
-
-    // Get organization owner
-    const { data: org } = await supabase
-      .from("organizations")
-      .select("owner_id")
-      .eq("id", membership.organization_id)
-      .single();
-
-    if (!org) {
-      return jsonResponse({ error: "Organization not found" }, 404);
-    }
-
-    // Get Monday token (optional - some workflows may not need it)
-    let mondayToken: string | null = null;
-    try {
-      mondayToken = await getDecryptedMondayToken(org.owner_id, adminClient);
-    } catch (e) {
-      if (e instanceof MondayIntegrationError) {
-        console.log("Monday.com not configured, proceeding without token");
-      } else {
-        throw e;
-      }
-    }
-
-    // Create execution record
-    const startedAt = new Date();
-    const { data: execution, error: execError } = await adminClient
-      .from("workflow_executions")
-      .insert({
-        template_id: templateId,
-        organization_id: membership.organization_id,
-        user_id: callerId,
-        status: "running",
-        input_params: inputParams || {},
-        started_at: startedAt.toISOString(),
-      })
-      .select("id")
-      .single();
-
-    if (execError || !execution) {
-      console.error("Execution record error:", execError);
-      return jsonResponse({ error: "Failed to create execution record" }, 500);
-    }
-
-    // Call n8n webhook
-    try {
-      const response = await fetch(template.n8n_webhook_url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...inputParams,
-          execution_id: execution.id,
-          organization_id: membership.organization_id,
-          user_id: callerId,
-          monday_token: mondayToken,
-        }),
-      });
-
-      const completedAt = new Date();
-      const executionTimeMs = completedAt.getTime() - startedAt.getTime();
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        await adminClient
-          .from("workflow_executions")
-          .update({
-            status: "failed",
-            completed_at: completedAt.toISOString(),
-            execution_time_ms: executionTimeMs,
-            error_message: `Webhook failed: ${response.status}`,
-          })
-          .eq("id", execution.id);
-
-        return jsonResponse({ error: "Workflow failed", executionId: execution.id }, 500);
-      }
-
-      const result = await response.json();
-
-      await adminClient
-        .from("workflow_executions")
-        .update({
-          status: "success",
-          completed_at: completedAt.toISOString(),
-          execution_time_ms: executionTimeMs,
-          output_result: result,
-        })
-        .eq("id", execution.id);
-
-      // Update template execution count
-      await adminClient
-        .from("workflow_templates")
-        .update({ execution_count: template.execution_count + 1 })
-        .eq("id", templateId);
-
-      console.log(`Workflow executed: ${execution.id} in ${executionTimeMs}ms`);
-      return jsonResponse({ success: true, executionId: execution.id, result });
-
-    } catch (webhookError) {
-      const completedAt = new Date();
-      await adminClient
-        .from("workflow_executions")
-        .update({
-          status: "failed",
-          completed_at: completedAt.toISOString(),
-          execution_time_ms: completedAt.getTime() - startedAt.getTime(),
-          error_message: webhookError instanceof Error ? webhookError.message : "Unknown error",
-        })
-        .eq("id", execution.id);
-
-      return jsonResponse({ error: "Workflow failed", executionId: execution.id }, 500);
-    }
-
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
-    console.error("Unexpected error:", error);
-    return jsonResponse({ error: "Internal server error" }, 500);
-  }
-});
-```
-
----
-
-## 4. supabase/config.toml (UPDATE)
-
-```toml
-project_id = "yqjugovqhvxoxvrceqqp"
-
-[functions.get-member-tasks]
-verify_jwt = false
-
-[functions.get-monday-users]
-verify_jwt = false
-
-[functions.get-board-view-data]
-verify_jwt = false
-
-[functions.invite-member]
-verify_jwt = false
-
-[functions.activate-invited-member]
-verify_jwt = false
-
-[functions.execute-workflow]
-verify_jwt = false
-```
-
----
-
-## 5. useOrganizationMembers.ts (UPDATE)
-
-Update `inviteMember` to call the edge function:
-
-```typescript
-const inviteMember = useCallback(
-  async (email: string, displayName: string) => {
-    if (!organization || !user) {
-      throw new Error("Organization or user not available");
-    }
-
-    const { data, error } = await supabase.functions.invoke("invite-member", {
-      body: {
-        email: email.toLowerCase().trim(),
-        displayName: displayName.trim(),
-        organizationId: organization.id,
-      },
-    });
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to invite member.",
-        variant: "destructive",
-      });
-      throw error;
-    }
-
-    if (!data?.success) {
-      const errorMessage = data?.error || "Failed to invite member.";
-      toast({
-        title: "Error",
-        description: errorMessage,
-        variant: "destructive",
-      });
-      throw new Error(errorMessage);
-    }
-
-    toast({
-      title: "Invitation Sent",
-      description: `${displayName} has been invited to join your organization.`,
-    });
-
-    await fetchMembers();
-  },
-  [organization, user, toast, fetchMembers]
+// Executions this month
+const now = new Date();
+const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+const executionsThisMonth = executions.filter(e => 
+  e.started_at && new Date(e.started_at) >= startOfMonth
 );
+
+// Recent executions for activity feed (last 5)
+const recentExecutions = executions.slice(0, 5);
+
+// Build stats array with real values
+const stats = [
+  {
+    title: "Total Boards",
+    value: configs.length,
+    description: "Configured boards",
+    icon: LayoutDashboard,
+    isLoading: boardsLoading,
+  },
+  {
+    title: "Team Members",
+    value: activeMembers.length,
+    description: "Active members",
+    icon: Users,
+    isLoading: membersLoading,
+  },
+  {
+    title: "Templates",
+    value: templates.length,
+    description: "Available workflows",
+    icon: Zap,
+    isLoading: templatesLoading,
+  },
+  {
+    title: "Executions",
+    value: executionsThisMonth.length,
+    description: "This month",
+    icon: TrendingUp,
+    isLoading: executionsLoading,
+  },
+];
+```
+
+### 4. Stats Cards with Loading States
+
+```typescript
+<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+  {stats.map((stat) => (
+    <Card key={stat.title}>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-sm font-medium text-muted-foreground">
+          {stat.title}
+        </CardTitle>
+        <stat.icon className="h-4 w-4 text-muted-foreground" />
+      </CardHeader>
+      <CardContent>
+        {stat.isLoading ? (
+          <Skeleton className="h-8 w-16" />
+        ) : (
+          <div className="text-2xl font-bold">{stat.value}</div>
+        )}
+        <p className="text-xs text-muted-foreground">{stat.description}</p>
+      </CardContent>
+    </Card>
+  ))}
+</div>
+```
+
+### 5. Recent Activity Section
+
+Replace the placeholder card with a recent activity section showing the last 5 workflow executions:
+
+```typescript
+{/* Recent Activity */}
+<Card>
+  <CardHeader>
+    <CardTitle className="flex items-center gap-2">
+      <Activity className="h-5 w-5" />
+      Recent Activity
+    </CardTitle>
+  </CardHeader>
+  <CardContent>
+    {executionsLoading ? (
+      <div className="space-y-3">
+        {[1, 2, 3].map(i => (
+          <Skeleton key={i} className="h-12 w-full" />
+        ))}
+      </div>
+    ) : recentExecutions.length === 0 ? (
+      <div className="text-center py-8 text-muted-foreground">
+        <p>No recent workflow executions</p>
+        <p className="text-sm">Run a template to see activity here</p>
+      </div>
+    ) : (
+      <div className="space-y-3">
+        {recentExecutions.map(exec => (
+          <div key={exec.id} className="flex items-center justify-between p-3 rounded-lg border">
+            <div className="flex items-center gap-3">
+              <StatusIcon status={exec.status} />
+              <div>
+                <p className="font-medium text-sm">
+                  {exec.workflow_templates?.name || 'Unknown Template'}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {formatRelativeTime(exec.started_at)}
+                </p>
+              </div>
+            </div>
+            <Badge variant={getStatusVariant(exec.status)}>
+              {exec.status}
+            </Badge>
+          </div>
+        ))}
+      </div>
+    )}
+  </CardContent>
+</Card>
+```
+
+### 6. Quick Actions Section
+
+Add quick action buttons for common tasks:
+
+```typescript
+{/* Quick Actions */}
+<Card>
+  <CardHeader>
+    <CardTitle className="flex items-center gap-2">
+      <Sparkles className="h-5 w-5" />
+      Quick Actions
+    </CardTitle>
+  </CardHeader>
+  <CardContent>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Button variant="outline" asChild className="justify-start">
+        <Link to="/board-config">
+          <LayoutDashboard className="mr-2 h-4 w-4" />
+          Configure Boards
+        </Link>
+      </Button>
+      <Button variant="outline" asChild className="justify-start">
+        <Link to="/organization">
+          <Users className="mr-2 h-4 w-4" />
+          Manage Team
+        </Link>
+      </Button>
+      <Button variant="outline" asChild className="justify-start">
+        <Link to="/templates">
+          <Zap className="mr-2 h-4 w-4" />
+          Run Template
+        </Link>
+      </Button>
+      <Button variant="outline" asChild className="justify-start">
+        <Link to="/integrations">
+          <Settings className="mr-2 h-4 w-4" />
+          Integrations
+        </Link>
+      </Button>
+    </div>
+  </CardContent>
+</Card>
+```
+
+### 7. Integration Status Banner
+
+Show a banner if Monday.com is not connected:
+
+```typescript
+{!isConnected && (
+  <Card className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
+    <CardContent className="flex items-center justify-between p-4">
+      <div className="flex items-center gap-3">
+        <AlertCircle className="h-5 w-5 text-amber-600" />
+        <div>
+          <p className="font-medium text-amber-800 dark:text-amber-200">
+            Monday.com not connected
+          </p>
+          <p className="text-sm text-amber-600 dark:text-amber-400">
+            Connect your account to start managing boards
+          </p>
+        </div>
+      </div>
+      <Button asChild size="sm">
+        <Link to="/integrations">Connect Now</Link>
+      </Button>
+    </CardContent>
+  </Card>
+)}
 ```
 
 ---
 
-## Testing After Deployment
+## Helper Functions
 
-1. **invite-member**: Organization page → Invite member → Check logs
-2. **activate-invited-member**: Click invite email → Sign up → Verify activation
-3. **execute-workflow**: Templates page → Run workflow → Check logs
+```typescript
+// Format relative time (e.g., "2 hours ago")
+function formatRelativeTime(dateStr: string | null): string {
+  if (!dateStr) return 'Unknown time';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+}
+
+// Get status badge variant
+function getStatusVariant(status: string) {
+  switch (status) {
+    case 'success': return 'default';
+    case 'failed': return 'destructive';
+    case 'running': return 'secondary';
+    default: return 'outline';
+  }
+}
+
+// Status icon component
+function StatusIcon({ status }: { status: string }) {
+  switch (status) {
+    case 'success':
+      return <CheckCircle className="h-5 w-5 text-green-500" />;
+    case 'failed':
+      return <XCircle className="h-5 w-5 text-red-500" />;
+    case 'running':
+      return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />;
+    default:
+      return <Clock className="h-5 w-5 text-gray-400" />;
+  }
+}
+```
+
+---
+
+## Final Component Structure
+
+```text
+Dashboard
+├── Welcome Header (with role badge)
+├── Integration Warning Banner (if not connected)
+├── Stats Grid (4 cards with real data + loading states)
+│   ├── Total Boards
+│   ├── Team Members (active only)
+│   ├── Templates
+│   └── Executions This Month
+├── Quick Actions (4 buttons linking to key pages)
+└── Recent Activity (last 5 workflow executions)
+```
+
+---
+
+## New Imports Required
+
+```typescript
+import { Link } from "react-router-dom";
+import { 
+  LayoutDashboard, Users, Zap, TrendingUp, 
+  Activity, Sparkles, Settings, AlertCircle,
+  CheckCircle, XCircle, Clock, Loader2
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+```
+
+---
+
+## Files Changed
+
+| File | Changes |
+|------|---------|
+| `src/pages/Dashboard.tsx` | Complete rewrite with real data, loading states, activity feed, quick actions |
+
