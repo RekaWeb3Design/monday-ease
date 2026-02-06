@@ -1,15 +1,35 @@
+import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useMemberTasks } from "@/hooks/useMemberTasks";
 import { TaskStats } from "@/components/member/TaskStats";
 import { TaskCard } from "@/components/member/TaskCard";
 import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw, ClipboardList } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2, RefreshCw, ClipboardList, LayoutList } from "lucide-react";
 
 export default function MemberDashboard() {
   const { profile } = useAuth();
   const { tasks, isLoading, error, refetch } = useMemberTasks();
+  const [activeTab, setActiveTab] = useState<string>("all");
 
   const displayName = profile?.full_name || "there";
+
+  // Extract unique boards from tasks
+  const boards = useMemo(() => {
+    const boardMap = new Map<string, string>();
+    tasks.forEach(task => {
+      if (!boardMap.has(task.board_id)) {
+        boardMap.set(task.board_id, task.board_name);
+      }
+    });
+    return Array.from(boardMap.entries()).map(([id, name]) => ({ id, name }));
+  }, [tasks]);
+
+  // Filter tasks based on active tab
+  const filteredTasks = useMemo(() => {
+    if (activeTab === "all") return tasks;
+    return tasks.filter(task => task.board_id === activeTab);
+  }, [tasks, activeTab]);
 
   // Loading state
   if (isLoading) {
@@ -99,13 +119,41 @@ export default function MemberDashboard() {
         </Button>
       </div>
 
-      {/* Stats row */}
-      <TaskStats tasks={tasks} />
+      {/* Tab Navigation */}
+      {boards.length > 0 && (
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="h-auto flex-wrap justify-start gap-1 bg-transparent p-0">
+            <TabsTrigger 
+              value="all" 
+              className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+            >
+              <LayoutList className="mr-1.5 h-4 w-4" />
+              All Tasks ({tasks.length})
+            </TabsTrigger>
+            {boards.map((board) => (
+              <TabsTrigger 
+                key={board.id} 
+                value={board.id}
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                {board.name} ({tasks.filter(t => t.board_id === board.id).length})
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
 
-      {/* Task grid */}
+      {/* Stats row - uses filtered tasks */}
+      <TaskStats tasks={filteredTasks} />
+
+      {/* Task grid - uses filtered tasks */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {tasks.map((task) => (
-          <TaskCard key={task.id} task={task} />
+        {filteredTasks.map((task) => (
+          <TaskCard 
+            key={task.id} 
+            task={task} 
+            showBoardName={activeTab === "all"} 
+          />
         ))}
       </div>
     </div>
