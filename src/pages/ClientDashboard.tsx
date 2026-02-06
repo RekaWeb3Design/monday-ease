@@ -176,16 +176,16 @@ export default function ClientDashboard() {
     const text = value?.text || value?.label || "";
     if (!text) return null;
 
-    const bgColor = value?.label_style?.color || STATUS_COLORS[text] || "#C4C4C4";
+    const color = value?.label_style?.color || STATUS_COLORS[text] || "#C4C4C4";
 
     return (
       <span
-        className="inline-flex items-center justify-center text-white text-xs font-semibold rounded-full py-1 px-3"
         style={{
-          backgroundColor: bgColor,
-          minWidth: "70px",
-          textShadow: "0 1px 2px rgba(0,0,0,0.15)",
+          backgroundColor: `${color}20`,
+          color: color,
+          border: `1px solid ${color}4D`,
         }}
+        className="inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold min-w-[70px] whitespace-nowrap"
       >
         {text}
       </span>
