@@ -1,167 +1,309 @@
 
 
-# Client Dashboard (Board Views) — Client-Side Search Enhancement
+# Client Dashboard (/c/:slug) — Search & Sort
 
 ## Összefoglaló
 
-A CustomViewPage-en már létezik egy keresőmező, de jelenleg **szerver-oldali** keresést használ (a `useBoardViewData` hook-on keresztül). A feladat: átalakítani **kliens-oldali** keresésre, ami gyorsabb és nem igényel API hívást minden billentyűleütésnél.
+Keresés és rendezés funkciók hozzáadása a jelszóval védett Client Dashboard-hoz (`/c/:slug`). Jelenleg ez az oldal multi-board tabokkal és táblázattal rendelkezik, de nincs keresés, rendezés vagy nézet váltás.
 
 ## Jelenlegi Állapot
 
-**Meglévő keresés (szerver-oldali):**
-- `search` és `debouncedSearch` state (59-60. sor)
-- Debounce logika (67-73. sor)
-- `useBoardViewData` hook kapja a `search` paramétert (87. sor)
-- Keresőmező UI (421-442. sor)
-
-**Probléma:**
-- Minden keresés API hívást generál
-- 300ms debounce késleltetés
-- Nem azonnal reagál a felhasználói inputra
+- **Fájl**: `src/pages/ClientDashboard.tsx` (465 sor, self-contained)
+- **Belső `BoardTable` komponens**: 372-465. sor
+- **Adatstruktúra**: `column_values` Record típusú (nem Array!)
+  ```typescript
+  item.column_values[colId] // ← helyes
+  // NEM: item.column_values.find(cv => cv.id === colId)
+  ```
 
 ## Technikai Terv
 
-### Fájl: `src/pages/CustomViewPage.tsx`
-
-**1. Eltávolítani a szerver-oldali keresést:**
-
-Távolítsuk el a `debouncedSearch` state-et és a debounce effect-et, és ne küldjük a search paramétert a hook-nak:
+### 1. Új importok (1-18. sor környékén)
 
 ```typescript
-// ELŐTTE (59-60. sor):
-const [search, setSearch] = useState("");
-const [debouncedSearch, setDebouncedSearch] = useState("");
-
-// UTÁNA:
-const [searchQuery, setSearchQuery] = useState("");
-
-// TÖRÖLNI (67-73. sor):
-// A teljes debounce useEffect eltávolítása
-
-// MÓDOSÍTANI (84-90. sor):
-const { ... } = useBoardViewData({
-  viewId: view?.id || null,
-  page,
-  // search: debouncedSearch, ← TÖRÖLNI
-  sortColumn,
-  sortOrder,
-});
+import { Lock, LogOut, Loader2, AlertCircle, LayoutDashboard, Search, X, ChevronUp, ChevronDown } from "lucide-react";
 ```
 
-**2. Kliens-oldali keresés hozzáadása (a `filteredItems` után):**
+### 2. Új state változók (52-61. sor után)
 
 ```typescript
-// Kliens-oldali keresés (a filteredItems után)
-const searchedItems = useMemo(() => {
-  if (!searchQuery.trim()) return filteredItems;
+const [searchQuery, setSearchQuery] = useState("");
+const [sortColumn, setSortColumn] = useState<string | null>(null);
+const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+```
+
+### 3. Filter és Sort függvények (a komponens belsejében)
+
+```typescript
+// Keresés szűrő
+const getFilteredItems = (items: ClientDashboardData["boards"][number]["items"]) => {
+  if (!searchQuery.trim()) return items;
   const query = searchQuery.toLowerCase().trim();
-  return filteredItems.filter(item => {
-    // Keresés a task nevében
+  return items.filter(item => {
     if (item.name.toLowerCase().includes(query)) return true;
-    // Keresés az összes oszlop szöveges értékében
     return Object.values(item.column_values).some(cv => 
       cv?.text && cv.text.toLowerCase().includes(query)
     );
   });
-}, [filteredItems, searchQuery]);
+};
+
+// Rendezés
+const getSortedItems = (items: ClientDashboardData["boards"][number]["items"]) => {
+  if (!sortColumn) return items;
+  
+  return [...items].sort((a, b) => {
+    let aVal: string | number = "";
+    let bVal: string | number = "";
+    
+    if (sortColumn === "name") {
+      aVal = a.name.toLowerCase();
+      bVal = b.name.toLowerCase();
+    } else {
+      const aCol = a.column_values[sortColumn];
+      const bCol = b.column_values[sortColumn];
+      
+      if (aCol?.type === "numbers" || aCol?.type === "numeric") {
+        aVal = parseFloat(aCol?.text || "0") || 0;
+        bVal = parseFloat(bCol?.text || "0") || 0;
+      } else {
+        aVal = (aCol?.text || "").toLowerCase();
+        bVal = (bCol?.text || "").toLowerCase();
+      }
+    }
+    
+    if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+    if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+    return 0;
+  });
+};
+
+// Sort toggle handler
+const handleSort = (columnId: string) => {
+  if (sortColumn === columnId) {
+    if (sortDirection === "asc") {
+      setSortDirection("desc");
+    } else {
+      setSortColumn(null);
+      setSortDirection("asc");
+    }
+  } else {
+    setSortColumn(columnId);
+    setSortDirection("asc");
+  }
+};
 ```
 
-**3. Keresőmező UI frissítése:**
+### 4. Tab váltásnál reset (337. sor)
 
 ```tsx
-{/* Search Input */}
-<div className="relative flex-1">
-  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-  <Input
-    placeholder="Search items..."
-    value={searchQuery}
-    onChange={(e) => setSearchQuery(e.target.value)}
-    className="pl-9 pr-9"
-  />
-  {searchQuery && (
-    <button
-      onClick={() => setSearchQuery("")}
-      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-    >
-      <X className="h-4 w-4" />
-    </button>
-  )}
+<Tabs 
+  defaultValue={boards[0]?.boardId ?? "default"} 
+  className="w-full"
+  onValueChange={() => {
+    setSearchQuery("");
+    setSortColumn(null);
+    setSortDirection("asc");
+  }}
+>
+```
+
+### 5. BoardTable props bővítése
+
+```typescript
+interface BoardTableProps {
+  board: ClientBoard | null | undefined;
+  renderCellValue: (value: any, type: string) => React.ReactNode;
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  sortColumn: string | null;
+  sortDirection: "asc" | "desc";
+  handleSort: (columnId: string) => void;
+  getFilteredItems: (items: any[]) => any[];
+  getSortedItems: (items: any[]) => any[];
+}
+```
+
+### 6. BoardTable hívások frissítése
+
+Egy board esetén (334. sor):
+```tsx
+<BoardTable 
+  board={boards[0]} 
+  renderCellValue={renderCellValue}
+  searchQuery={searchQuery}
+  setSearchQuery={setSearchQuery}
+  sortColumn={sortColumn}
+  sortDirection={sortDirection}
+  handleSort={handleSort}
+  getFilteredItems={getFilteredItems}
+  getSortedItems={getSortedItems}
+/>
+```
+
+Több board esetén (357. sor):
+```tsx
+<BoardTable 
+  board={board} 
+  renderCellValue={renderCellValue}
+  searchQuery={searchQuery}
+  setSearchQuery={setSearchQuery}
+  sortColumn={sortColumn}
+  sortDirection={sortDirection}
+  handleSort={handleSort}
+  getFilteredItems={getFilteredItems}
+  getSortedItems={getSortedItems}
+/>
+```
+
+### 7. BoardTable komponens belső módosítások
+
+**a) Adatpipeline (items helyett):**
+```typescript
+const filteredItems = getFilteredItems(items);
+const sortedItems = getSortedItems(filteredItems);
+```
+
+**b) Keresőmező UI (CardHeader után, CardContent előtt):**
+```tsx
+<CardHeader className="pb-3">
+  <CardTitle className="text-lg font-semibold text-gray-800">{boardName}</CardTitle>
+</CardHeader>
+
+{/* Search bar */}
+<div className="px-4 pb-4">
+  <div className="flex items-center gap-3">
+    <div className="relative w-full max-w-sm">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <Input
+        placeholder="Search items..."
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        className="pl-9 pr-9"
+      />
+      {searchQuery && (
+        <button
+          onClick={() => setSearchQuery("")}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+    {searchQuery && (
+      <span className="text-sm text-muted-foreground whitespace-nowrap">
+        Showing {sortedItems.length} of {items.length}
+      </span>
+    )}
+  </div>
 </div>
-
-{/* Találatok száma (csak aktív keresésnél) */}
-{searchQuery && (
-  <span className="text-sm text-muted-foreground whitespace-nowrap">
-    Showing {searchedItems.length} of {filteredItems.length}
-  </span>
-)}
 ```
 
-**4. `searchedItems` használata minden view-ban:**
-
+**c) Name/Item oszlop fejléc (kattintható):**
 ```tsx
-{/* Table View */}
-{(settings.view_mode || 'table') === 'table' && (
-  <ViewDataTable
-    columns={columns}
-    items={searchedItems}  // ← filteredItems helyett
-    ...
-  />
-)}
-
-{/* Card View */}
-{settings.view_mode === 'cards' && (
-  <CardView
-    items={searchedItems}  // ← filteredItems helyett
-    ...
-  />
-)}
-
-{/* Gallery View */}
-{settings.view_mode === 'gallery' && (
-  <GalleryView
-    items={searchedItems}  // ← filteredItems helyett
-    ...
-  />
+{!hasNameColumn && (
+  <TableHead 
+    className="font-semibold text-gray-600 uppercase text-xs tracking-wider py-3 px-4 cursor-pointer hover:bg-muted/50 select-none"
+    onClick={() => handleSort("name")}
+  >
+    <div className="flex items-center gap-1">
+      Item
+      {sortColumn === "name" && (
+        sortDirection === "asc" 
+          ? <ChevronUp className="h-3 w-3" /> 
+          : <ChevronDown className="h-3 w-3" />
+      )}
+    </div>
+  </TableHead>
 )}
 ```
 
-**5. Footer item count frissítése:**
-
+**d) Dinamikus oszlop fejlécek (kattintható):**
 ```tsx
-<p className="text-sm text-muted-foreground">
-  Showing {searchedItems.length} of {totalCount} items
-  {activeFilterCount > 0 && ` (${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''} active)`}
-  {searchQuery && ` • searching for "${searchQuery}"`}
-</p>
+{columns.map((col) => (
+  <TableHead
+    key={col?.id ?? Math.random()}
+    className="font-semibold text-gray-600 uppercase text-xs tracking-wider py-3 px-4 cursor-pointer hover:bg-muted/50 select-none"
+    onClick={() => handleSort(col.id)}
+  >
+    <div className="flex items-center gap-1">
+      {col?.title ?? ""}
+      {sortColumn === col.id && (
+        sortDirection === "asc" 
+          ? <ChevronUp className="h-3 w-3" /> 
+          : <ChevronDown className="h-3 w-3" />
+      )}
+    </div>
+  </TableHead>
+))}
 ```
 
-## Adatfolyam (Frissített)
+**e) Táblázat body sortedItems használata:**
+```tsx
+<TableBody>
+  {sortedItems.map((item, index) => (
+    // ... meglévő row renderelés
+  ))}
+</TableBody>
+```
+
+**f) Üres állapot kezelés (szűrés után):**
+```tsx
+if (!sortedItems.length) {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg font-semibold text-gray-800">{boardName}</CardTitle>
+      </CardHeader>
+      {/* Search bar */}
+      <div className="px-4 pb-4">
+        {/* ... search input ... */}
+      </div>
+      <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+        <p className="text-muted-foreground">
+          {searchQuery ? "No items match your search" : "No items to display"}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Adatfolyam
 
 ```text
-items (Edge Function-ből, rendezve)
+board.items
     ↓
-filteredItems (oszlop szűrők — kliens-oldali)
+filteredItems (keresés szűrő)
     ↓
-searchedItems (keresés — kliens-oldali, ÚJ)
+sortedItems (rendezés)
     ↓
-→ ViewDataTable / CardView / GalleryView
+→ Table renderelés
 ```
 
-## Viselkedés
+## Viselkedés Összefoglaló
 
 | Művelet | Hatás |
 |---------|-------|
-| Keresés gépelés | Azonnali szűrés (nincs debounce, nincs API hívás) |
+| Keresés gépelés | Azonnali szűrés name + column values alapján |
 | "X" gomb | Törli a keresést |
-| Tab/view váltás | Keresés megmarad |
-| Oldal újratöltés | Keresés elvész (nem perzisztens) |
+| Tab váltás | Reseteli search + sort |
+| Fejléc kattintás | Ciklikus: asc → desc → nincs sort |
+
+## FONTOS: column_values hozzáférés
+
+```typescript
+// ClientDashboard (Record típus):
+const aCol = a.column_values[sortColumn];
+
+// NEM így (ez a MemberDashboard pattern, Array típus):
+// const aCol = a.column_values.find(cv => cv.id === sortColumn);
+```
 
 ## Nem Változik
 
-- `ViewDataTable.tsx` — változatlan
-- `CardView.tsx` — változatlan
-- `GalleryView.tsx` — változatlan
-- Edge Functions — nincs módosítás
-- Rendezés logika — változatlan
-- Oszlop szűrők — változatlan
+- Jelszavas autentikáció
+- Tab rendszer
+- Színes status badge-ek
+- Edge Functions
+- Többi komponens
 
