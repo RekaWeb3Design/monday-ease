@@ -185,11 +185,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Effect 1: Listen for auth state changes — synchronous state updates only.
   // Avoids calling async Supabase methods inside the callback (deadlock risk).
   // The INITIAL_SESSION event fires on mount with the existing session if any.
+  // NOTE: Empty dependency array - this listener runs once on mount and handles all auth events internally.
   useEffect(() => {
+    let previousUserId: string | undefined = undefined;
+    
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
-        // Only update session/user state - don't trigger loading for token refreshes
-        const prevUserId = user?.id;
         const newUserId = newSession?.user?.id;
         
         setSession(newSession);
@@ -201,18 +202,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setOrganization(null);
           setMemberRole(null);
           setInitialDataLoaded(false);
-        } else if (prevUserId !== newUserId) {
+        } else if (previousUserId !== undefined && previousUserId !== newUserId) {
           // User changed - reset for new data load
           setInitialDataLoaded(false);
         }
         // For TOKEN_REFRESHED events, don't reset anything - keep existing data
-
+        
+        previousUserId = newUserId;
         setAuthInitialized(true);
       }
     );
 
     return () => subscription.unsubscribe();
-  }, [user?.id]);
+  }, []); // Empty dependency array - listener handles state internally
 
   // Effect 2: Once auth is initialized, load profile + org data for the user.
   // Only runs on initial load or when user actually changes (not on token refresh).

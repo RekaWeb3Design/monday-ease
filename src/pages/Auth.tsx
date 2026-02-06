@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { CheckCircle, Eye, EyeOff, Building2, UserPlus } from "lucide-react";
+import { CheckCircle, Eye, EyeOff, Building2, UserPlus, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
@@ -76,16 +76,37 @@ export default function Auth() {
   const [showSetupPassword, setShowSetupPassword] = useState(false);
   const [showSetupConfirmPassword, setShowSetupConfirmPassword] = useState(false);
   const [invitedOrgName, setInvitedOrgName] = useState<string | null>(null);
+  
+  // Recovery flow detection state
+  const [checkingRecovery, setCheckingRecovery] = useState(true);
 
   // Detect if user arrived via password recovery link
+  // This runs BEFORE Supabase clears the hash, and also checks sessionStorage as fallback
   useEffect(() => {
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const type = hashParams.get('type');
+    const detectRecoveryMode = async () => {
+      const hash = window.location.hash;
+      
+      // Check for recovery type in hash (before Supabase processes it)
+      if (hash.includes('type=recovery')) {
+        sessionStorage.setItem('recovery_flow', 'true');
+        setShowPasswordSetup(true);
+        setCheckingRecovery(false);
+        return;
+      }
+      
+      // Also check sessionStorage for recovery intent (after Supabase cleared hash)
+      const savedRecoveryIntent = sessionStorage.getItem('recovery_flow');
+      if (savedRecoveryIntent) {
+        setShowPasswordSetup(true);
+        sessionStorage.removeItem('recovery_flow');
+        setCheckingRecovery(false);
+        return;
+      }
+      
+      setCheckingRecovery(false);
+    };
     
-    if (type === 'recovery') {
-      // User came from password reset/setup link
-      setShowPasswordSetup(true);
-    }
+    detectRecoveryMode();
   }, []);
 
   // Fetch organization name for invited users on password setup
@@ -326,9 +347,13 @@ export default function Auth() {
     }
   };
 
-  // Don't render auth page if already logged in (and not setting up password)
-  if (loading) {
-    return null;
+  // Show loading spinner while auth is loading or checking recovery mode
+  if (loading || checkingRecovery) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   return (
