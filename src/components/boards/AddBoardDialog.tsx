@@ -343,17 +343,28 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
 
   const hasFilterColumn = filterColumnId && filterColumnId !== 'none';
 
+  // Use internal state that we fully control to prevent any external closing
+  const [internalOpen, setInternalOpen] = useState(false);
+  
+  // Sync with parent when parent wants to open (but not close)
+  useEffect(() => {
+    if (open && !internalOpen) {
+      setInternalOpen(true);
+    }
+  }, [open, internalOpen]);
+  
   // Explicit close handler - only way to close the dialog
   const handleClose = () => {
+    setInternalOpen(false);
     onOpenChange(false);
   };
 
   return (
     <Dialog 
-      open={open} 
-      onOpenChange={(isOpen) => {
-        // Only allow opening, not auto-closing (prevents tab switch closing)
-        if (isOpen) onOpenChange(isOpen);
+      open={internalOpen} 
+      onOpenChange={() => {
+        // Completely ignore all automatic close attempts
+        // Dialog can only be closed via handleClose()
       }}
       modal={false}
     >
