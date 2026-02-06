@@ -370,18 +370,19 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     >
       <DialogContent 
         className="max-w-lg"
+        hideCloseButton
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
         onFocusOutside={(e) => e.preventDefault()}
-        // Hide default close button since we provide our own
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
-        <DialogHeader className="relative">
+        <DialogHeader className="relative pr-8">
           <Button
             variant="ghost"
             size="icon"
             className="absolute right-0 top-0 h-6 w-6 rounded-sm opacity-70 hover:opacity-100"
             onClick={handleClose}
+            type="button"
           >
             <X className="h-4 w-4" />
             <span className="sr-only">Close</span>
