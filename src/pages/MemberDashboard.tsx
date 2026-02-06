@@ -121,11 +121,22 @@ export default function MemberDashboard() {
             type="single" 
             value={viewMode} 
             onValueChange={(v) => v && setViewMode(v as "grid" | "list")}
+            className="border rounded-md"
           >
-            <ToggleGroupItem value="grid" aria-label="Grid view" size="sm">
+            <ToggleGroupItem 
+              value="grid" 
+              aria-label="Grid view" 
+              size="sm"
+              className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+            >
               <LayoutGrid className="h-4 w-4" />
             </ToggleGroupItem>
-            <ToggleGroupItem value="list" aria-label="List view" size="sm">
+            <ToggleGroupItem 
+              value="list" 
+              aria-label="List view" 
+              size="sm"
+              className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+            >
               <List className="h-4 w-4" />
             </ToggleGroupItem>
           </ToggleGroup>
