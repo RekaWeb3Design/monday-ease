@@ -112,6 +112,13 @@ export function EditClientDialog({
     }
   }, [client, open]);
 
+  // Re-load boards when boardConfigs changes (handles async loading)
+  useEffect(() => {
+    if (open && boardConfigs.length > 0 && boards.length === 0 && !loadingAccess) {
+      loadBoardAccess();
+    }
+  }, [boardConfigs, open]);
+
   const loadBoardAccess = async () => {
     if (!client) return;
     setLoadingAccess(true);
