@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { Lock, LogOut, Loader2, AlertCircle, LayoutDashboard } from "lucide-react";
+import { Lock, LogOut, Loader2, AlertCircle, LayoutDashboard, Search, X, ChevronUp, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -59,6 +59,11 @@ export default function ClientDashboard() {
   const [clientInfo, setClientInfo] = useState<ClientAuthResponse["client"] | null>(null);
   const [dashboardData, setDashboardData] = useState<ClientDashboardData | null>(null);
   const [loadingData, setLoadingData] = useState(false);
+
+  // Search and sort state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
 
   const storageKey = `mondayease_client_${slug}`;
 
@@ -168,6 +173,70 @@ export default function ClientDashboard() {
     setClientInfo(null);
     setPassword("");
     toast.success("Logged out successfully");
+  };
+
+  // Search filter function
+  const getFilteredItems = (items: ClientDashboardData["boards"][number]["items"]) => {
+    if (!searchQuery.trim()) return items;
+    const query = searchQuery.toLowerCase().trim();
+    return items.filter(item => {
+      if (item.name.toLowerCase().includes(query)) return true;
+      return Object.values(item.column_values).some(cv => 
+        cv?.text && cv.text.toLowerCase().includes(query)
+      );
+    });
+  };
+
+  // Sort function
+  const getSortedItems = (items: ClientDashboardData["boards"][number]["items"]) => {
+    if (!sortColumn) return items;
+    
+    return [...items].sort((a, b) => {
+      let aVal: string | number = "";
+      let bVal: string | number = "";
+      
+      if (sortColumn === "name") {
+        aVal = a.name.toLowerCase();
+        bVal = b.name.toLowerCase();
+      } else {
+        const aCol = a.column_values[sortColumn];
+        const bCol = b.column_values[sortColumn];
+        
+        if (aCol?.type === "numbers" || aCol?.type === "numeric") {
+          aVal = parseFloat(aCol?.text || "0") || 0;
+          bVal = parseFloat(bCol?.text || "0") || 0;
+        } else {
+          aVal = (aCol?.text || "").toLowerCase();
+          bVal = (bCol?.text || "").toLowerCase();
+        }
+      }
+      
+      if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+  };
+
+  // Sort toggle handler
+  const handleSort = (columnId: string) => {
+    if (sortColumn === columnId) {
+      if (sortDirection === "asc") {
+        setSortDirection("desc");
+      } else {
+        setSortColumn(null);
+        setSortDirection("asc");
+      }
+    } else {
+      setSortColumn(columnId);
+      setSortDirection("asc");
+    }
+  };
+
+  // Reset search and sort on tab change
+  const handleTabChange = () => {
+    setSearchQuery("");
+    setSortColumn(null);
+    setSortDirection("asc");
   };
 
   const getStatusBadge = (value: any, type: string) => {
@@ -331,10 +400,24 @@ export default function ClientDashboard() {
           </Card>
         ) : boards.length === 1 ? (
           // Single board - no tabs needed
-          <BoardTable board={boards[0]} renderCellValue={renderCellValue} />
+          <BoardTable
+            board={boards[0]}
+            renderCellValue={renderCellValue}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            sortColumn={sortColumn}
+            sortDirection={sortDirection}
+            handleSort={handleSort}
+            getFilteredItems={getFilteredItems}
+            getSortedItems={getSortedItems}
+          />
         ) : (
           // Multiple boards - show tabs with custom styling
-          <Tabs defaultValue={boards[0]?.boardId ?? "default"} className="w-full">
+          <Tabs
+            defaultValue={boards[0]?.boardId ?? "default"}
+            className="w-full"
+            onValueChange={handleTabChange}
+          >
             <div className="border-b border-gray-200 mb-6">
               <TabsList className="bg-transparent h-auto p-0 space-x-6">
                 {boards.map((board) => (
@@ -354,7 +437,17 @@ export default function ClientDashboard() {
             </div>
             {boards.map((board) => (
               <TabsContent key={board?.boardId ?? Math.random()} value={board?.boardId ?? ""}>
-                <BoardTable board={board} renderCellValue={renderCellValue} />
+                <BoardTable
+                  board={board}
+                  renderCellValue={renderCellValue}
+                  searchQuery={searchQuery}
+                  setSearchQuery={setSearchQuery}
+                  sortColumn={sortColumn}
+                  sortDirection={sortDirection}
+                  handleSort={handleSort}
+                  getFilteredItems={getFilteredItems}
+                  getSortedItems={getSortedItems}
+                />
               </TabsContent>
             ))}
           </Tabs>
@@ -373,9 +466,26 @@ export default function ClientDashboard() {
 interface BoardTableProps {
   board: ClientBoard | null | undefined;
   renderCellValue: (value: any, type: string) => React.ReactNode;
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  sortColumn: string | null;
+  sortDirection: "asc" | "desc";
+  handleSort: (columnId: string) => void;
+  getFilteredItems: (items: ClientDashboardData["boards"][number]["items"]) => ClientDashboardData["boards"][number]["items"];
+  getSortedItems: (items: ClientDashboardData["boards"][number]["items"]) => ClientDashboardData["boards"][number]["items"];
 }
 
-function BoardTable({ board, renderCellValue }: BoardTableProps) {
+function BoardTable({
+  board,
+  renderCellValue,
+  searchQuery,
+  setSearchQuery,
+  sortColumn,
+  sortDirection,
+  handleSort,
+  getFilteredItems,
+  getSortedItems,
+}: BoardTableProps) {
   // Early return if board is malformed
   if (!board) {
     return (
@@ -395,6 +505,41 @@ function BoardTable({ board, renderCellValue }: BoardTableProps) {
   // Check if "name" is in visible columns (from board config)
   const hasNameColumn = columns.some((col) => col.id === "name");
 
+  // Apply filter and sort
+  const filteredItems = getFilteredItems(items);
+  const sortedItems = getSortedItems(filteredItems);
+
+  // Search bar component (reused in both empty and filled states)
+  const SearchBar = () => (
+    <div className="px-4 pb-4">
+      <div className="flex items-center gap-3">
+        <div className="relative w-full max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search items..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 pr-9"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        {searchQuery && (
+          <span className="text-sm text-muted-foreground whitespace-nowrap">
+            Showing {sortedItems.length} of {items.length}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  // Empty state (no items at all)
   if (!items.length) {
     return (
       <Card className="border-dashed shadow-sm">
@@ -405,11 +550,29 @@ function BoardTable({ board, renderCellValue }: BoardTableProps) {
     );
   }
 
+  // Empty state after search
+  if (!sortedItems.length) {
+    return (
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg font-semibold text-gray-800">{boardName}</CardTitle>
+        </CardHeader>
+        <SearchBar />
+        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+          <p className="text-muted-foreground">
+            {searchQuery ? "No items match your search" : "No items to display"}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="shadow-sm">
       <CardHeader className="pb-3">
         <CardTitle className="text-lg font-semibold text-gray-800">{boardName}</CardTitle>
       </CardHeader>
+      <SearchBar />
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <Table>
@@ -417,22 +580,40 @@ function BoardTable({ board, renderCellValue }: BoardTableProps) {
               <TableRow className="bg-gray-50 border-b border-gray-100">
                 {/* Only show Item column if "name" is NOT in visible columns */}
                 {!hasNameColumn && (
-                  <TableHead className="font-semibold text-gray-600 uppercase text-xs tracking-wider py-3 px-4">
-                    Item
+                  <TableHead
+                    className="font-semibold text-gray-600 uppercase text-xs tracking-wider py-3 px-4 cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("name")}
+                  >
+                    <div className="flex items-center gap-1">
+                      Item
+                      {sortColumn === "name" && (
+                        sortDirection === "asc"
+                          ? <ChevronUp className="h-3 w-3" />
+                          : <ChevronDown className="h-3 w-3" />
+                      )}
+                    </div>
                   </TableHead>
                 )}
                 {columns.map((col) => (
                   <TableHead
                     key={col?.id ?? Math.random()}
-                    className="font-semibold text-gray-600 uppercase text-xs tracking-wider py-3 px-4"
+                    className="font-semibold text-gray-600 uppercase text-xs tracking-wider py-3 px-4 cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort(col.id)}
                   >
-                    {col?.title ?? ""}
+                    <div className="flex items-center gap-1">
+                      {col?.title ?? ""}
+                      {sortColumn === col.id && (
+                        sortDirection === "asc"
+                          ? <ChevronUp className="h-3 w-3" />
+                          : <ChevronDown className="h-3 w-3" />
+                      )}
+                    </div>
                   </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((item, index) => (
+              {sortedItems.map((item, index) => (
                 <TableRow
                   key={item?.id ?? Math.random()}
                   className={`border-b border-gray-100 hover:bg-gray-50 transition-colors
