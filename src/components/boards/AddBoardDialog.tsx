@@ -48,15 +48,13 @@ import { useMondayUsers } from "@/hooks/useMondayUsers";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-import type { MondayBoard, MondayColumn, OrganizationMember } from "@/types";
+import type { MondayBoard } from "@/types";
 
 interface AddBoardDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
 }
-
-type Step = 1 | 2 | 3 | 4;
 
 interface ClientOption {
   id: string;
@@ -71,8 +69,8 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
   const { users: mondayUsers, isLoading: usersLoading, fetchUsers } = useMondayUsers();
   const { organization } = useAuth();
 
-  // Step state
-  const [step, setStep] = useState<Step>(1);
+  // Step state - index-based navigation
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Step 1: Selected board
@@ -86,12 +84,40 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
   const [filterColumnId, setFilterColumnId] = useState<string>("");
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
 
-  // Step 4: Member and client mappings
-  const [memberMappings, setMemberMappings] = useState<Record<string, string>>({});
+  // Step 4/5: Checkbox-based member selection
+  const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
+  const [memberFilterValues, setMemberFilterValues] = useState<Record<string, string>>({});
   const [openPopovers, setOpenPopovers] = useState<Record<string, boolean>>({});
+
+  // Step 4/5: Checkbox-based client selection
   const [clients, setClients] = useState<ClientOption[]>([]);
-  const [clientMappings, setClientMappings] = useState<Record<string, string>>({});
+  const [selectedClients, setSelectedClients] = useState<Set<string>>(new Set());
+  const [clientFilterValues, setClientFilterValues] = useState<Record<string, string>>({});
   const [clientsLoading, setClientsLoading] = useState(false);
+
+  // Dynamic steps based on audience selection
+  const steps = useMemo(() => {
+    const base: string[] = ['select-board', 'audience', 'columns'];
+    if (targetAudience === 'team' || targetAudience === 'both') base.push('team-members');
+    if (targetAudience === 'clients' || targetAudience === 'both') base.push('clients');
+    return base;
+  }, [targetAudience]);
+
+  const currentStep = steps[currentStepIndex];
+  const totalSteps = steps.length;
+  const isLastStep = currentStepIndex === steps.length - 1;
+
+  // Step label helper
+  const getStepLabel = (step: string) => {
+    switch (step) {
+      case 'select-board': return 'Select a Monday.com board';
+      case 'audience': return 'Who is this board for?';
+      case 'columns': return 'Configure columns';
+      case 'team-members': return 'Select team members';
+      case 'clients': return 'Select clients';
+      default: return '';
+    }
+  };
 
   // Get the selected filter column to determine type
   const selectedFilterColumn = useMemo(() => {
@@ -141,41 +167,28 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     }
   }, [selectedBoardId, boards]);
 
-  // Fetch Monday users when entering step 4 with a person column
+  // Fetch Monday users when entering team-members step with a person column
   useEffect(() => {
-    if (step === 4 && isPersonColumn && mondayUsers.length === 0) {
+    if (currentStep === 'team-members' && isPersonColumn && mondayUsers.length === 0) {
       fetchUsers();
     }
-  }, [step, isPersonColumn, mondayUsers.length, fetchUsers]);
-
-  // Pre-fill member mappings with display names when entering step 4
-  useEffect(() => {
-    if (step === 4) {
-      const prefilled: Record<string, string> = {};
-      mappableMembers.forEach((member) => {
-        if (!memberMappings[member.id] && member.display_name) {
-          prefilled[member.id] = member.display_name;
-        }
-      });
-      if (Object.keys(prefilled).length > 0) {
-        setMemberMappings((prev) => ({ ...prefilled, ...prev }));
-      }
-    }
-  }, [step]);
+  }, [currentStep, isPersonColumn, mondayUsers.length, fetchUsers]);
 
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
-      setStep(1);
+      setCurrentStepIndex(0);
       setSelectedBoardId("");
       setSelectedBoard(null);
       setTargetAudience('both');
       setFilterColumnId("");
       setVisibleColumns([]);
-      setMemberMappings({});
+      setSelectedMembers(new Set());
+      setMemberFilterValues({});
+      setSelectedClients(new Set());
+      setClientFilterValues({});
       setOpenPopovers({});
       setClients([]);
-      setClientMappings({});
     }
   }, [open]);
 
@@ -187,26 +200,56 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     );
   };
 
-  const handleMemberMappingChange = (memberId: string, value: string) => {
-    setMemberMappings((prev) => ({
-      ...prev,
-      [memberId]: value,
-    }));
+  // Toggle handlers for checkbox-based selection
+  const toggleMember = (memberId: string) => {
+    setSelectedMembers(prev => {
+      const next = new Set(prev);
+      if (next.has(memberId)) {
+        next.delete(memberId);
+      } else {
+        next.add(memberId);
+      }
+      return next;
+    });
   };
 
-  const handleClientMappingChange = (clientId: string, value: string) => {
-    setClientMappings((prev) => ({
-      ...prev,
-      [clientId]: value,
-    }));
+  const handleMemberFilterChange = (memberId: string, value: string) => {
+    setMemberFilterValues(prev => ({ ...prev, [memberId]: value }));
+  };
+
+  const toggleClient = (clientId: string) => {
+    setSelectedClients(prev => {
+      const next = new Set(prev);
+      if (next.has(clientId)) {
+        next.delete(clientId);
+      } else {
+        next.add(clientId);
+      }
+      return next;
+    });
+  };
+
+  const handleClientFilterChange = (clientId: string, value: string) => {
+    setClientFilterValues(prev => ({ ...prev, [clientId]: value }));
   };
 
   const handleSubmit = async () => {
     if (!selectedBoard) return;
-
     setIsSubmitting(true);
 
     const filterColumn = selectedBoard.columns.find((c) => c.id === filterColumnId);
+
+    // Only include SELECTED members
+    const memberMappingsList = Array.from(selectedMembers).map(memberId => ({
+      member_id: memberId,
+      filter_value: memberFilterValues[memberId] || '',
+    }));
+
+    // Only include SELECTED clients
+    const clientMappingsList = Array.from(selectedClients).map(clientId => ({
+      client_id: clientId,
+      filter_value: clientFilterValues[clientId] || '',
+    }));
 
     const success = await createConfig({
       monday_board_id: selectedBoard.id,
@@ -216,12 +259,8 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
       filter_column_type: filterColumn?.type || null,
       visible_columns: visibleColumns,
       target_audience: targetAudience,
-      memberMappings: targetAudience === 'clients' ? [] : Object.entries(memberMappings)
-        .filter(([_, value]) => value.trim() !== "")
-        .map(([member_id, filter_value]) => ({ member_id, filter_value })),
-      clientMappings: targetAudience === 'team' ? [] : Object.entries(clientMappings)
-        .filter(([_, value]) => value.trim() !== "")
-        .map(([client_id, filter_value]) => ({ client_id, filter_value })),
+      memberMappings: targetAudience === 'clients' ? [] : memberMappingsList,
+      clientMappings: targetAudience === 'team' ? [] : clientMappingsList,
     });
 
     setIsSubmitting(false);
@@ -231,11 +270,6 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
       onSuccess();
     }
   };
-
-  const canProceedStep1 = !!selectedBoardId;
-  const canProceedStep2 = !!targetAudience;
-  const canProceedStep3 = true; // Column config is optional
-  const canSubmit = !!selectedBoard;
 
   // Filter members to show (exclude owner for mapping since they have full access)
   // Also deduplicate by member id
@@ -248,32 +282,27 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     });
   }, [members]);
 
+  const hasFilterColumn = filterColumnId && filterColumnId !== 'none';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Add Board Configuration</DialogTitle>
           <DialogDescription>
-            Step {step} of 4:{" "}
-            {step === 1
-              ? "Select a Monday.com board"
-              : step === 2
-              ? "Who is this board for?"
-              : step === 3
-              ? "Configure columns"
-              : "Assign access"}
+            Step {currentStepIndex + 1} of {totalSteps}: {getStepLabel(currentStep)}
           </DialogDescription>
         </DialogHeader>
 
         {/* Step indicators */}
         <div className="flex items-center justify-center gap-2 py-2">
-          {[1, 2, 3, 4].map((s) => (
+          {steps.map((_, i) => (
             <div
-              key={s}
+              key={i}
               className={`h-2 w-2 rounded-full transition-colors ${
-                s === step
+                i === currentStepIndex
                   ? "bg-primary"
-                  : s < step
+                  : i < currentStepIndex
                   ? "bg-primary/50"
                   : "bg-muted"
               }`}
@@ -283,7 +312,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
 
         <div className="min-h-[300px]">
           {/* Step 1: Select Board */}
-          {step === 1 && (
+          {currentStep === 'select-board' && (
             <div className="space-y-4">
               {boardsLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -329,7 +358,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
           )}
 
           {/* Step 2: Target Audience */}
-          {step === 2 && (
+          {currentStep === 'audience' && (
             <div className="space-y-4">
               <Label className="text-sm font-medium">Who should see this board?</Label>
               <RadioGroup value={targetAudience} onValueChange={(v) => setTargetAudience(v as 'team' | 'clients' | 'both')}>
@@ -359,7 +388,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
           )}
 
           {/* Step 3: Configure Columns */}
-          {step === 3 && selectedBoard && (
+          {currentStep === 'columns' && selectedBoard && (
             <div className="space-y-4">
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
@@ -430,206 +459,205 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
             </div>
           )}
 
-          {/* Step 4: Assign Access */}
-          {step === 4 && (
-            <div className="space-y-6">
-              {/* Team Members Section */}
-              {(targetAudience === 'team' || targetAudience === 'both') && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 pb-2 border-b">
-                    <Users className="h-4 w-4" />
-                    <span className="font-medium">Team Members</span>
-                  </div>
-                  {mappableMembers.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No team members to configure. Invite members first.</p>
-                  ) : (
-                    <>
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-sm text-muted-foreground">
-                            {isPersonColumn
-                              ? "Select which person each member represents"
-                              : "Enter the exact text value to filter by for each member"}
-                          </p>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Info className="h-4 w-4 text-muted-foreground cursor-help flex-shrink-0" />
-                              </TooltipTrigger>
-                              <TooltipContent className="max-w-[280px]">
-                                {isPersonColumn ? (
-                                  <p>Choose from your organization members or Monday.com users. This determines which board items they can see based on the People column.</p>
-                                ) : (
-                                  <p>Enter the exact value that matches this member in the Filter Column. For example, if the filter column value is 'Priya Desai', enter that exact text here.</p>
-                                )}
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
+          {/* Team Members Step */}
+          {currentStep === 'team-members' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b">
+                <Users className="h-4 w-4" />
+                <span className="font-medium">Select Team Members</span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Check the members who should have access to this board.
+                {hasFilterColumn && ' Enter a filter value to limit which rows they see.'}
+              </p>
+              
+              {mappableMembers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No team members to configure. Invite members first.</p>
+              ) : (
+                <ScrollArea className="h-[260px] rounded-md border p-3">
+                  <div className="space-y-3">
+                    {mappableMembers.map((member) => (
+                      <div key={member.id} className="space-y-2">
+                        <div className="flex items-start gap-3">
+                          <Checkbox
+                            id={`member-${member.id}`}
+                            checked={selectedMembers.has(member.id)}
+                            onCheckedChange={() => toggleMember(member.id)}
+                            className="mt-0.5"
+                          />
+                          <label htmlFor={`member-${member.id}`} className="flex-1 cursor-pointer">
+                            <div className="font-medium text-sm">{member.display_name || member.email}</div>
+                            {member.display_name && (
+                              <div className="text-xs text-muted-foreground">{member.email}</div>
+                            )}
+                          </label>
                         </div>
-                        {isPersonColumn && usersLoading && (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Loading users...
+                        
+                        {/* Only show filter input when member is selected AND filter column exists */}
+                        {selectedMembers.has(member.id) && hasFilterColumn && (
+                          <div className="ml-7">
+                            {isPersonColumn ? (
+                              <Popover
+                                open={openPopovers[member.id] || false}
+                                onOpenChange={(isOpen) =>
+                                  setOpenPopovers((prev) => ({ ...prev, [member.id]: isOpen }))
+                                }
+                              >
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    role="combobox"
+                                    className="w-full justify-between font-normal h-9 text-sm"
+                                    disabled={usersLoading}
+                                  >
+                                    {memberFilterValues[member.id] || "Select Monday.com user..."}
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[340px] p-0" align="start">
+                                  <Command>
+                                    <CommandInput placeholder="Search users..." />
+                                    <CommandList>
+                                      <CommandEmpty>No user found.</CommandEmpty>
+                                      {mappableMembers.length > 0 && (
+                                        <CommandGroup heading="Organization Members">
+                                          {mappableMembers.map((orgMember) => (
+                                            <CommandItem
+                                              key={`org-${orgMember.id}`}
+                                              value={`org ${orgMember.display_name || ''} ${orgMember.email}`}
+                                              onSelect={() => {
+                                                handleMemberFilterChange(member.id, orgMember.display_name || orgMember.email);
+                                                setOpenPopovers((prev) => ({ ...prev, [member.id]: false }));
+                                              }}
+                                            >
+                                              <Check
+                                                className={cn(
+                                                  "mr-2 h-4 w-4",
+                                                  memberFilterValues[member.id] === orgMember.display_name
+                                                    ? "opacity-100"
+                                                    : "opacity-0"
+                                                )}
+                                              />
+                                              <Users className="mr-2 h-4 w-4 text-primary" />
+                                              <div className="flex flex-col">
+                                                <span>{orgMember.display_name || orgMember.email}</span>
+                                                <span className="text-xs text-muted-foreground">
+                                                  {orgMember.email}
+                                                </span>
+                                              </div>
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      )}
+                                      <CommandSeparator />
+                                      {mondayUsers.length > 0 && (
+                                        <CommandGroup heading="Monday.com Users">
+                                          {mondayUsers.map((user) => (
+                                            <CommandItem
+                                              key={`monday-${user.id}`}
+                                              value={`monday ${user.name} ${user.email || ''}`}
+                                              onSelect={() => {
+                                                handleMemberFilterChange(member.id, user.name);
+                                                setOpenPopovers((prev) => ({ ...prev, [member.id]: false }));
+                                              }}
+                                            >
+                                              <Check
+                                                className={cn(
+                                                  "mr-2 h-4 w-4",
+                                                  memberFilterValues[member.id] === user.name
+                                                    ? "opacity-100"
+                                                    : "opacity-0"
+                                                )}
+                                              />
+                                              <User className="mr-2 h-4 w-4 text-muted-foreground" />
+                                              <div className="flex flex-col">
+                                                <span>{user.name}</span>
+                                                {user.email && (
+                                                  <span className="text-xs text-muted-foreground">
+                                                    {user.email}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      )}
+                                    </CommandList>
+                                  </Command>
+                                </PopoverContent>
+                              </Popover>
+                            ) : (
+                              <Input
+                                placeholder="Enter filter value..."
+                                value={memberFilterValues[member.id] || ""}
+                                onChange={(e) => handleMemberFilterChange(member.id, e.target.value)}
+                                className="h-9 text-sm"
+                              />
+                            )}
                           </div>
                         )}
                       </div>
-                      <ScrollArea className="h-[140px] rounded-md border p-3">
-                        <div className="space-y-3">
-                          {mappableMembers.map((member) => (
-                            <div key={member.id} className="space-y-1.5">
-                              <Label className="text-sm font-normal flex flex-col">
-                                <span>{member.display_name || member.email}</span>
-                                {member.display_name && (
-                                  <span className="text-xs text-muted-foreground font-normal">{member.email}</span>
-                                )}
-                              </Label>
-                              {isPersonColumn ? (
-                                <Popover
-                                  open={openPopovers[member.id] || false}
-                                  onOpenChange={(isOpen) =>
-                                    setOpenPopovers((prev) => ({ ...prev, [member.id]: isOpen }))
-                                  }
-                                >
-                                  <PopoverTrigger asChild>
-                                    <Button
-                                      variant="outline"
-                                      role="combobox"
-                                      className="w-full justify-between font-normal"
-                                      disabled={usersLoading}
-                                    >
-                                      {memberMappings[member.id] || "Select Monday.com user..."}
-                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-[340px] p-0" align="start">
-                                    <Command>
-                                      <CommandInput placeholder="Search users..." />
-                                      <CommandList>
-                                        <CommandEmpty>No user found.</CommandEmpty>
-                                        
-                                        {/* Organization Members */}
-                                        {mappableMembers.length > 0 && (
-                                          <CommandGroup heading="Organization Members">
-                                            {mappableMembers.map((orgMember) => (
-                                              <CommandItem
-                                                key={`org-${orgMember.id}`}
-                                                value={`org ${orgMember.display_name || ''} ${orgMember.email}`}
-                                                onSelect={() => {
-                                                  handleMemberMappingChange(member.id, orgMember.display_name || orgMember.email);
-                                                  setOpenPopovers((prev) => ({ ...prev, [member.id]: false }));
-                                                }}
-                                              >
-                                                <Check
-                                                  className={cn(
-                                                    "mr-2 h-4 w-4",
-                                                    memberMappings[member.id] === orgMember.display_name
-                                                      ? "opacity-100"
-                                                      : "opacity-0"
-                                                  )}
-                                                />
-                                                <Users className="mr-2 h-4 w-4 text-primary" />
-                                                <div className="flex flex-col">
-                                                  <span>{orgMember.display_name || orgMember.email}</span>
-                                                  <span className="text-xs text-muted-foreground">
-                                                    {orgMember.email}
-                                                  </span>
-                                                </div>
-                                              </CommandItem>
-                                            ))}
-                                          </CommandGroup>
-                                        )}
-                                        
-                                        <CommandSeparator />
-                                        
-                                        {/* Monday.com Users */}
-                                        {mondayUsers.length > 0 && (
-                                          <CommandGroup heading="Monday.com Users">
-                                            {mondayUsers.map((user) => (
-                                              <CommandItem
-                                                key={`monday-${user.id}`}
-                                                value={`monday ${user.name} ${user.email || ''}`}
-                                                onSelect={() => {
-                                                  handleMemberMappingChange(member.id, user.name);
-                                                  setOpenPopovers((prev) => ({ ...prev, [member.id]: false }));
-                                                }}
-                                              >
-                                                <Check
-                                                  className={cn(
-                                                    "mr-2 h-4 w-4",
-                                                    memberMappings[member.id] === user.name
-                                                      ? "opacity-100"
-                                                      : "opacity-0"
-                                                  )}
-                                                />
-                                                <User className="mr-2 h-4 w-4 text-muted-foreground" />
-                                                <div className="flex flex-col">
-                                                  <span>{user.name}</span>
-                                                  {user.email && (
-                                                    <span className="text-xs text-muted-foreground">
-                                                      {user.email}
-                                                    </span>
-                                                  )}
-                                                </div>
-                                              </CommandItem>
-                                            ))}
-                                          </CommandGroup>
-                                        )}
-                                      </CommandList>
-                                    </Command>
-                                  </PopoverContent>
-                                </Popover>
-                              ) : (
-                                <Input
-                                  placeholder="Enter exact filter value..."
-                                  value={memberMappings[member.id] || ""}
-                                  onChange={(e) =>
-                                    handleMemberMappingChange(member.id, e.target.value)
-                                  }
-                                />
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </ScrollArea>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Clients Section */}
-              {(targetAudience === 'clients' || targetAudience === 'both') && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 pb-2 border-b">
-                    <Building2 className="h-4 w-4" />
-                    <span className="font-medium">External Clients</span>
+                    ))}
                   </div>
-                  {clientsLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Loading clients...
-                    </div>
-                  ) : clients.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No active clients. Create clients first.</p>
-                  ) : (
-                    <ScrollArea className="h-[140px] rounded-md border p-3">
-                      <div className="space-y-3">
-                        {clients.map((client) => (
-                          <div key={client.id} className="space-y-1.5">
-                            <Label className="text-sm font-normal flex flex-col">
-                              <span>{client.company_name}</span>
-                              <span className="text-xs text-muted-foreground font-normal">{client.contact_name}</span>
-                            </Label>
+                </ScrollArea>
+              )}
+            </div>
+          )}
+
+          {/* Clients Step */}
+          {currentStep === 'clients' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b">
+                <Building2 className="h-4 w-4" />
+                <span className="font-medium">Select Clients</span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Check the clients who should have access to this board.
+                {hasFilterColumn 
+                  ? ' Enter a filter value to limit which rows they see.' 
+                  : ' They will see all rows on this board.'}
+              </p>
+              
+              {clientsLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading clients...
+                </div>
+              ) : clients.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No active clients. Create clients first.</p>
+              ) : (
+                <ScrollArea className="h-[260px] rounded-md border p-3">
+                  <div className="space-y-3">
+                    {clients.map((client) => (
+                      <div key={client.id} className="space-y-2">
+                        <div className="flex items-start gap-3">
+                          <Checkbox
+                            id={`client-${client.id}`}
+                            checked={selectedClients.has(client.id)}
+                            onCheckedChange={() => toggleClient(client.id)}
+                            className="mt-0.5"
+                          />
+                          <label htmlFor={`client-${client.id}`} className="flex-1 cursor-pointer">
+                            <div className="font-medium text-sm">{client.company_name}</div>
+                            <div className="text-xs text-muted-foreground">{client.contact_name}</div>
+                          </label>
+                        </div>
+                        
+                        {/* Only show filter input when client is selected AND filter column exists */}
+                        {selectedClients.has(client.id) && hasFilterColumn && (
+                          <div className="ml-7">
                             <Input
-                              placeholder="Filter value (optional - leave empty for all rows)"
-                              value={clientMappings[client.id] || ""}
-                              onChange={(e) => handleClientMappingChange(client.id, e.target.value)}
+                              placeholder="Enter filter value (optional - leave empty for all rows)..."
+                              value={clientFilterValues[client.id] || ""}
+                              onChange={(e) => handleClientFilterChange(client.id, e.target.value)}
+                              className="h-9 text-sm"
                             />
                           </div>
-                        ))}
+                        )}
                       </div>
-                    </ScrollArea>
-                  )}
-                </div>
+                    ))}
+                  </div>
+                </ScrollArea>
               )}
             </div>
           )}
@@ -637,10 +665,10 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
 
         <DialogFooter className="flex-row justify-between sm:justify-between">
           <div>
-            {step > 1 && (
+            {currentStepIndex > 0 && (
               <Button
                 variant="outline"
-                onClick={() => setStep((s) => (s - 1) as Step)}
+                onClick={() => setCurrentStepIndex(i => Math.max(0, i - 1))}
                 disabled={isSubmitting}
               >
                 <ChevronLeft className="mr-1 h-4 w-4" />
@@ -652,19 +680,8 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            {step < 4 ? (
-              <Button
-                onClick={() => setStep((s) => (s + 1) as Step)}
-                disabled={
-                  (step === 1 && !canProceedStep1) ||
-                  (step === 2 && !canProceedStep2)
-                }
-              >
-                Next
-                <ChevronRight className="ml-1 h-4 w-4" />
-              </Button>
-            ) : (
-              <Button onClick={handleSubmit} disabled={!canSubmit || isSubmitting}>
+            {isLastStep ? (
+              <Button onClick={handleSubmit} disabled={!selectedBoard || isSubmitting}>
                 {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -676,6 +693,17 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
                     Save
                   </>
                 )}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => setCurrentStepIndex(i => i + 1)}
+                disabled={
+                  (currentStep === 'select-board' && !selectedBoardId) ||
+                  (currentStep === 'audience' && !targetAudience)
+                }
+              >
+                Next
+                <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
             )}
           </div>
