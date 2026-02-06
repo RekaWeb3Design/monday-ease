@@ -1,9 +1,14 @@
 import { Badge } from "@/components/ui/badge";
+import { ChevronUp, ChevronDown } from "lucide-react";
 import type { MondayTask, MondayColumnValue } from "@/types";
 
 interface TaskListViewProps {
   tasks: MondayTask[];
   showBoardName: boolean;
+  allColumns: { id: string; title: string; type: string }[];
+  sortColumn: string | null;
+  sortDirection: "asc" | "desc";
+  onSort: (columnId: string) => void;
 }
 
 // Check if column is a status type
@@ -19,7 +24,14 @@ function getColumnColor(col: MondayColumnValue): string | null {
   return null;
 }
 
-export function TaskListView({ tasks, showBoardName }: TaskListViewProps) {
+export function TaskListView({ 
+  tasks, 
+  showBoardName, 
+  allColumns,
+  sortColumn,
+  sortDirection,
+  onSort 
+}: TaskListViewProps) {
   if (tasks.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
@@ -28,37 +40,52 @@ export function TaskListView({ tasks, showBoardName }: TaskListViewProps) {
     );
   }
 
-  // Get all unique columns from all tasks
-  const allColumns = tasks.reduce((acc, task) => {
-    task.column_values.forEach((col) => {
-      if (!acc.find((c) => c.id === col.id)) {
-        acc.push({ id: col.id, title: col.title, type: col.type });
-      }
-    });
-    return acc;
-  }, [] as { id: string; title: string; type: string }[]);
+  // Sortable header component
+  const SortableHeader = ({ 
+    columnId, 
+    children, 
+    className = "" 
+  }: { 
+    columnId: string; 
+    children: React.ReactNode; 
+    className?: string;
+  }) => (
+    <th
+      className={`font-semibold text-muted-foreground uppercase text-xs py-3 px-4 cursor-pointer hover:bg-muted/70 select-none transition-colors ${className}`}
+      onClick={() => onSort(columnId)}
+    >
+      <div className="flex items-center gap-1">
+        {children}
+        {sortColumn === columnId && (
+          sortDirection === "asc" 
+            ? <ChevronUp className="h-3 w-3" /> 
+            : <ChevronDown className="h-3 w-3" />
+        )}
+      </div>
+    </th>
+  );
 
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-muted/50 border-b border-border">
-            <th className="text-left font-semibold text-muted-foreground uppercase text-xs py-3 px-4">
+            <SortableHeader columnId="name" className="text-left">
               Name
-            </th>
+            </SortableHeader>
             {showBoardName && (
-              <th className="text-left font-semibold text-muted-foreground uppercase text-xs py-3 px-4">
+              <SortableHeader columnId="board" className="text-left">
                 Board
-              </th>
+              </SortableHeader>
             )}
             {allColumns.map((col) => (
-              <th
-                key={col.id}
-                className={`font-semibold text-muted-foreground uppercase text-xs py-3 px-4
-                  ${col.type === "numbers" ? "text-right" : "text-left"}`}
+              <SortableHeader 
+                key={col.id} 
+                columnId={col.id}
+                className={col.type === "numbers" ? "text-right" : "text-left"}
               >
                 {col.title}
-              </th>
+              </SortableHeader>
             ))}
           </tr>
         </thead>
