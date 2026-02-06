@@ -149,15 +149,24 @@ export default function Clients() {
                   </Button>
                   <Button
                     variant="outline"
-                    size="sm"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => window.open(`${window.location.origin}/c/${client.slug}`, "_blank")}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
                     onClick={() => setEditingClient(client)}
                   >
                     <Edit className="h-3 w-3" />
                   </Button>
                   <Button
                     variant="outline"
-                    size="sm"
-                    className="text-destructive hover:text-destructive"
+                    size="icon"
+                    className="h-8 w-8 text-destructive hover:text-destructive"
                     onClick={() => setDeletingClient(client)}
                   >
                     <Trash2 className="h-3 w-3" />
