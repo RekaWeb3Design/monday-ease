@@ -55,6 +55,8 @@ export function useClients() {
       }));
     },
     enabled: !!organization?.id,
+    // Prevent refetching on window focus to avoid disrupting dialogs
+    refetchOnWindowFocus: false,
   });
 
   // Create client mutation
