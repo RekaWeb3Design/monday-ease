@@ -103,6 +103,7 @@ export interface BoardConfig {
   is_active: boolean;
   monday_account_id: string | null;
   workspace_name: string | null;
+  target_audience: 'team' | 'clients' | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -258,4 +259,83 @@ export interface ViewColumnValue {
   type: string;
   label?: string;
   label_style?: { color?: string };
+}
+
+// ============== Client Management ==============
+
+// Client from database (clients table)
+export interface Client {
+  id: string;
+  organization_id: string;
+  company_name: string;
+  contact_name: string;
+  contact_email: string;
+  phone: string | null;
+  client_type: string | null;
+  notes: string | null;
+  slug: string;
+  password_hash: string;
+  status: 'active' | 'inactive' | 'archived';
+  created_at: string | null;
+  updated_at: string | null;
+  last_login_at: string | null;
+}
+
+// Client with board access count (for list view)
+export interface ClientWithAccessCount extends Client {
+  board_access_count: number;
+}
+
+// Client board access from database (client_board_access table)
+export interface ClientBoardAccess {
+  id: string;
+  client_id: string;
+  board_config_id: string;
+  filter_value: string | null;
+  created_at: string | null;
+}
+
+// Create client response from edge function
+export interface CreateClientResponse {
+  success: boolean;
+  client: Client;
+  dashboardUrl: string;
+  password: string;
+}
+
+// Client auth response from edge function
+export interface ClientAuthResponse {
+  success: boolean;
+  token: string;
+  client: {
+    id: string;
+    companyName: string;
+    contactName: string;
+    slug: string;
+  };
+}
+
+// Client dashboard data from edge function
+export interface ClientDashboardData {
+  companyName: string;
+  boards: ClientDashboardBoard[];
+}
+
+export interface ClientDashboardBoard {
+  boardId: string;
+  boardName: string;
+  columns: { id: string; title: string; type: string }[];
+  items: ClientDashboardItem[];
+}
+
+export interface ClientDashboardItem {
+  id: string;
+  name: string;
+  column_values: Record<string, {
+    text: string | null;
+    value: any;
+    type: string;
+    label?: string;
+    label_style?: { color?: string };
+  }>;
 }
