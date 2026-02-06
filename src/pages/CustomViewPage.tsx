@@ -56,21 +56,11 @@ export default function CustomViewPage() {
   const [localColumns, setLocalColumns] = useState<ViewColumn[]>([]);
 
   // Search, filter, and pagination state
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [filters, setFilters] = useState<Record<string, string>>({});
-
-  // Debounce search input
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1); // Reset to first page on search
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search]);
 
   // Fetch view data
   const {
@@ -84,7 +74,6 @@ export default function CustomViewPage() {
   } = useBoardViewData({
     viewId: view?.id || null,
     page,
-    search: debouncedSearch,
     sortColumn,
     sortOrder,
   });
@@ -268,6 +257,20 @@ export default function CustomViewPage() {
   // Count active filters
   const activeFilterCount = Object.values(filters).filter(v => v && v !== 'all').length;
 
+  // Client-side search (after filter)
+  const searchedItems = useMemo(() => {
+    if (!searchQuery.trim()) return filteredItems;
+    const query = searchQuery.toLowerCase().trim();
+    return filteredItems.filter(item => {
+      // Search in task name
+      if (item.name.toLowerCase().includes(query)) return true;
+      // Search in all column text values
+      return Object.values(item.column_values).some(cv => 
+        cv?.text && cv.text.toLowerCase().includes(query)
+      );
+    });
+  }, [filteredItems, searchQuery]);
+
   // Clear all filters
   const clearFilters = () => setFilters({});
 
@@ -419,26 +422,29 @@ export default function CustomViewPage() {
       <div className="space-y-3">
         {/* Search bar */}
         {settings.enable_search && (
-          <div className="flex items-center gap-2 max-w-md">
-            <div className="relative flex-1">
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search items..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-9"
               />
-              {search && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                  onClick={() => setSearch("")}
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
                   <X className="h-4 w-4" />
-                </Button>
+                </button>
               )}
             </div>
+            {searchQuery && (
+              <span className="text-sm text-muted-foreground whitespace-nowrap">
+                Showing {searchedItems.length} of {filteredItems.length}
+              </span>
+            )}
           </div>
         )}
 
@@ -534,7 +540,7 @@ export default function CustomViewPage() {
       {(settings.view_mode || 'table') === 'table' && (
         <ViewDataTable
           columns={columns}
-          items={filteredItems}
+          items={searchedItems}
           settings={settings}
           isLoading={isLoading}
           sortColumn={sortColumn}
@@ -546,7 +552,7 @@ export default function CustomViewPage() {
 
       {settings.view_mode === 'cards' && (
         <CardView
-          items={filteredItems}
+          items={searchedItems}
           columns={columns}
           settings={settings}
           isLoading={isLoading}
@@ -555,7 +561,7 @@ export default function CustomViewPage() {
 
       {settings.view_mode === 'gallery' && (
         <GalleryView
-          items={filteredItems}
+          items={searchedItems}
           columns={columns}
           settings={settings}
           isLoading={isLoading}
@@ -565,8 +571,9 @@ export default function CustomViewPage() {
       {/* Footer with pagination */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Showing {filteredItems.length} of {totalCount} items
+          Showing {searchedItems.length} of {totalCount} items
           {activeFilterCount > 0 && ` (${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''} active)`}
+          {searchQuery && ` • searching for "${searchQuery}"`}
         </p>
 
         {totalPages > 1 && (
