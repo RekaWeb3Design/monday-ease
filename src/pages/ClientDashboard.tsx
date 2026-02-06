@@ -22,6 +22,16 @@ import type { ClientAuthResponse, ClientDashboardData } from "@/types";
 
 const SUPABASE_FUNCTIONS_URL = "https://yqjugovqhvxoxvrceqqp.supabase.co/functions/v1";
 
+// Type for a single board in the dashboard
+type ClientBoard = ClientDashboardData["boards"][number];
+
+// Safely extract boards from dashboard data
+function extractBoards(data: ClientDashboardData | null): ClientBoard[] {
+  if (!data) return [];
+  if (!Array.isArray(data.boards)) return [];
+  return data.boards;
+}
+
 export default function ClientDashboard() {
   const { slug } = useParams<{ slug: string }>();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -108,10 +118,17 @@ export default function ClientDashboard() {
         throw new Error(data.error || "Failed to load dashboard");
       }
 
-      setDashboardData(data);
+      // Ensure boards is always an array
+      const sanitizedData: ClientDashboardData = {
+        ...data,
+        companyName: data.companyName || "",
+        boards: Array.isArray(data.boards) ? data.boards : [],
+      };
+
+      setDashboardData(sanitizedData);
       setClientInfo({
         id: "",
-        companyName: data.companyName,
+        companyName: sanitizedData.companyName,
         contactName: "",
         slug: slug || "",
       });
@@ -163,7 +180,9 @@ export default function ClientDashboard() {
   };
 
   const renderCellValue = (value: any, type: string) => {
-    if (!value) return <span className="text-muted-foreground">-</span>;
+    if (value === undefined || value === null) {
+      return <span className="text-muted-foreground">-</span>;
+    }
 
     // Handle status/color columns
     const statusBadge = getStatusBadge(value, type);
@@ -185,7 +204,7 @@ export default function ClientDashboard() {
     );
   }
 
-  // Password entry state
+  // Password entry state - shown when NOT authenticated
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
@@ -252,6 +271,10 @@ export default function ClientDashboard() {
     );
   }
 
+  // Safely extract boards with fallback
+  const boards = extractBoards(dashboardData);
+  const hasBoards = boards.length > 0;
+
   // Dashboard state
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -261,7 +284,7 @@ export default function ClientDashboard() {
           <div className="flex items-center gap-3">
             <LayoutDashboard className="h-5 w-5 text-primary" />
             <h1 className="text-lg font-semibold">
-              {clientInfo?.companyName || dashboardData?.companyName}
+              {clientInfo?.companyName || dashboardData?.companyName || "Dashboard"}
             </h1>
           </div>
           <div className="flex items-center gap-4">
@@ -283,7 +306,7 @@ export default function ClientDashboard() {
             <Skeleton className="h-10 w-64" />
             <Skeleton className="h-[400px] w-full" />
           </div>
-        ) : !dashboardData?.boards?.length ? (
+        ) : !hasBoards ? (
           <Card className="border-dashed">
             <CardContent className="flex flex-col items-center justify-center py-16 text-center">
               <LayoutDashboard className="h-12 w-12 text-muted-foreground/50 mb-4" />
@@ -293,21 +316,21 @@ export default function ClientDashboard() {
               </p>
             </CardContent>
           </Card>
-        ) : dashboardData.boards.length === 1 ? (
+        ) : boards.length === 1 ? (
           // Single board - no tabs needed
-          <BoardTable board={dashboardData.boards[0]} renderCellValue={renderCellValue} />
+          <BoardTable board={boards[0]} renderCellValue={renderCellValue} />
         ) : (
           // Multiple boards - show tabs
-          <Tabs defaultValue={dashboardData.boards[0].boardId} className="w-full">
+          <Tabs defaultValue={boards[0]?.boardId ?? "default"} className="w-full">
             <TabsList className="mb-4">
-              {dashboardData.boards.map((board) => (
-                <TabsTrigger key={board.boardId} value={board.boardId}>
-                  {board.boardName}
+              {boards.map((board) => (
+                <TabsTrigger key={board?.boardId ?? Math.random()} value={board?.boardId ?? ""}>
+                  {board?.boardName ?? "Untitled Board"}
                 </TabsTrigger>
               ))}
             </TabsList>
-            {dashboardData.boards.map((board) => (
-              <TabsContent key={board.boardId} value={board.boardId}>
+            {boards.map((board) => (
+              <TabsContent key={board?.boardId ?? Math.random()} value={board?.boardId ?? ""}>
                 <BoardTable board={board} renderCellValue={renderCellValue} />
               </TabsContent>
             ))}
@@ -323,14 +346,30 @@ export default function ClientDashboard() {
   );
 }
 
-// Board table component
+// Board table component with defensive null checks
 interface BoardTableProps {
-  board: ClientDashboardData["boards"][0];
+  board: ClientBoard | null | undefined;
   renderCellValue: (value: any, type: string) => React.ReactNode;
 }
 
 function BoardTable({ board, renderCellValue }: BoardTableProps) {
-  if (!board.items?.length) {
+  // Early return if board is malformed
+  if (!board) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+          <p className="text-muted-foreground">Board data unavailable</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Safe extraction with fallbacks
+  const columns = board.columns ?? [];
+  const items = board.items ?? [];
+  const boardName = board.boardName ?? "Untitled Board";
+
+  if (!items.length) {
     return (
       <Card className="border-dashed">
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
@@ -343,7 +382,7 @@ function BoardTable({ board, renderCellValue }: BoardTableProps) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg">{board.boardName}</CardTitle>
+        <CardTitle className="text-lg">{boardName}</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto">
@@ -351,20 +390,20 @@ function BoardTable({ board, renderCellValue }: BoardTableProps) {
             <TableHeader>
               <TableRow>
                 <TableHead className="font-semibold">Item</TableHead>
-                {board.columns.map((col) => (
-                  <TableHead key={col.id} className="font-semibold">
-                    {col.title}
+                {columns.map((col) => (
+                  <TableHead key={col?.id ?? Math.random()} className="font-semibold">
+                    {col?.title ?? ""}
                   </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {board.items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  {board.columns.map((col) => (
-                    <TableCell key={col.id}>
-                      {renderCellValue(item.column_values[col.id], col.type)}
+              {items.map((item) => (
+                <TableRow key={item?.id ?? Math.random()}>
+                  <TableCell className="font-medium">{item?.name ?? "-"}</TableCell>
+                  {columns.map((col) => (
+                    <TableCell key={col?.id ?? Math.random()}>
+                      {renderCellValue(item?.column_values?.[col?.id], col?.type ?? "")}
                     </TableCell>
                   ))}
                 </TableRow>
