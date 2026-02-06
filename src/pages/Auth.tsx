@@ -356,8 +356,19 @@ export default function Auth() {
     }
   };
 
-  // Show loading spinner while auth is loading or checking recovery mode
-  if (loading || checkingRecovery) {
+  // Show loading spinner only while checking recovery mode
+  // NOTE: We don't wait for AuthContext loading when showing password setup form
+  // because the form doesn't need profile/org data
+  if (checkingRecovery) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Show loading for regular auth flows (NOT password setup)
+  if (loading && !showPasswordSetup) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
