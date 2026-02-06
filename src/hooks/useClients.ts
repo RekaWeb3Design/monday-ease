@@ -209,6 +209,18 @@ export function useClients() {
     },
   });
 
+  // Get client password function
+  const getClientPassword = async (clientId: string): Promise<{ password: string }> => {
+    const { data, error } = await supabase.functions.invoke("get-client-password", {
+      body: { clientId },
+    });
+
+    if (error) throw error;
+    if (!data?.success) throw new Error(data?.error || "Failed to get password");
+
+    return { password: data.password };
+  };
+
   return {
     clients,
     isLoading,
@@ -225,5 +237,6 @@ export function useClients() {
     fetchClientBoardAccess,
     updateBoardAccess: updateBoardAccessMutation.mutateAsync,
     isUpdatingAccess: updateBoardAccessMutation.isPending,
+    getClientPassword,
   };
 }
