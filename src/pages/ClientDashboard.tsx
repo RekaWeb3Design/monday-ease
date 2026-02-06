@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -21,6 +20,24 @@ import mondayeaseLogo from "@/assets/mondayease_logo.png";
 import type { ClientAuthResponse, ClientDashboardData } from "@/types";
 
 const SUPABASE_FUNCTIONS_URL = "https://yqjugovqhvxoxvrceqqp.supabase.co/functions/v1";
+
+// Status color fallback map for consistent coloring
+const STATUS_COLORS: Record<string, string> = {
+  "Done": "#00CA72",
+  "Working on it": "#FDAB3D",
+  "Stuck": "#E2445C",
+  "On Hold": "#579BFC",
+  "Not Started": "#C4C4C4",
+  "Pending": "#A25DDC",
+  "Active": "#00CA72",
+  "Sold": "#00CA72",
+  "Rented": "#579BFC",
+  "Draft": "#C4C4C4",
+  "Under Contract": "#FDAB3D",
+  "Off Market": "#E2445C",
+  "For Sale": "#00CA72",
+  "For Rent": "#579BFC",
+};
 
 // Type for a single board in the dashboard
 type ClientBoard = ClientDashboardData["boards"][number];
@@ -159,29 +176,25 @@ export default function ClientDashboard() {
     const text = value?.text || value?.label || "";
     if (!text) return null;
 
-    // Map common status colors
-    const colorMap: Record<string, string> = {
-      "Done": "hsl(var(--monday-green))",
-      "Working on it": "hsl(var(--monday-yellow))",
-      "Stuck": "hsl(var(--monday-red))",
-      "Not Started": "hsl(var(--muted))",
-    };
-
-    const bgColor = value?.label_style?.color || colorMap[text] || "hsl(var(--muted))";
+    const bgColor = value?.label_style?.color || STATUS_COLORS[text] || "#C4C4C4";
 
     return (
-      <Badge
-        className="text-white"
-        style={{ backgroundColor: bgColor }}
+      <span
+        className="inline-flex items-center justify-center text-white text-xs font-semibold rounded-full py-1 px-3"
+        style={{
+          backgroundColor: bgColor,
+          minWidth: "70px",
+          textShadow: "0 1px 2px rgba(0,0,0,0.15)",
+        }}
       >
         {text}
-      </Badge>
+      </span>
     );
   };
 
   const renderCellValue = (value: any, type: string) => {
     if (value === undefined || value === null) {
-      return <span className="text-muted-foreground">-</span>;
+      return <span className="text-gray-300">—</span>;
     }
 
     // Handle status/color columns
@@ -190,9 +203,9 @@ export default function ClientDashboard() {
 
     // Handle text
     const text = value.text || value.label || "";
-    if (!text) return <span className="text-muted-foreground">-</span>;
+    if (!text) return <span className="text-gray-300">—</span>;
 
-    return <span>{text}</span>;
+    return <span className="text-gray-700 text-sm">{text}</span>;
   };
 
   // Loading state
@@ -280,7 +293,7 @@ export default function ClientDashboard() {
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
       <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto w-full px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <LayoutDashboard className="h-5 w-5 text-primary" />
             <h1 className="text-lg font-semibold">
@@ -288,9 +301,9 @@ export default function ClientDashboard() {
             </h1>
           </div>
           <div className="flex items-center gap-4">
-            <Badge variant="secondary" className="hidden sm:flex">
+            <span className="hidden sm:inline-flex items-center text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
               Powered by MondayEase
-            </Badge>
+            </span>
             <Button variant="outline" size="sm" onClick={handleLogout}>
               <LogOut className="mr-2 h-4 w-4" />
               Logout
@@ -300,7 +313,7 @@ export default function ClientDashboard() {
       </header>
 
       {/* Main content */}
-      <main className="flex-1 container mx-auto px-4 py-6">
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
         {loadingData ? (
           <div className="space-y-4">
             <Skeleton className="h-10 w-64" />
@@ -320,15 +333,25 @@ export default function ClientDashboard() {
           // Single board - no tabs needed
           <BoardTable board={boards[0]} renderCellValue={renderCellValue} />
         ) : (
-          // Multiple boards - show tabs
+          // Multiple boards - show tabs with custom styling
           <Tabs defaultValue={boards[0]?.boardId ?? "default"} className="w-full">
-            <TabsList className="mb-4">
-              {boards.map((board) => (
-                <TabsTrigger key={board?.boardId ?? Math.random()} value={board?.boardId ?? ""}>
-                  {board?.boardName ?? "Untitled Board"}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+            <div className="border-b border-gray-200 mb-6">
+              <TabsList className="bg-transparent h-auto p-0 space-x-6">
+                {boards.map((board) => (
+                  <TabsTrigger
+                    key={board?.boardId ?? Math.random()}
+                    value={board?.boardId ?? ""}
+                    className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none 
+                               border-b-2 border-transparent data-[state=active]:border-primary 
+                               rounded-none px-0 pb-3 pt-0
+                               text-gray-500 hover:text-gray-700 data-[state=active]:text-gray-900 
+                               data-[state=active]:font-semibold font-medium text-sm"
+                  >
+                    {board?.boardName ?? "Untitled Board"}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
             {boards.map((board) => (
               <TabsContent key={board?.boardId ?? Math.random()} value={board?.boardId ?? ""}>
                 <BoardTable board={board} renderCellValue={renderCellValue} />
@@ -356,7 +379,7 @@ function BoardTable({ board, renderCellValue }: BoardTableProps) {
   // Early return if board is malformed
   if (!board) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-dashed shadow-sm">
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
           <p className="text-muted-foreground">Board data unavailable</p>
         </CardContent>
@@ -369,9 +392,12 @@ function BoardTable({ board, renderCellValue }: BoardTableProps) {
   const items = board.items ?? [];
   const boardName = board.boardName ?? "Untitled Board";
 
+  // Check if "name" is in visible columns (from board config)
+  const hasNameColumn = columns.some((col) => col.id === "name");
+
   if (!items.length) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-dashed shadow-sm">
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
           <p className="text-muted-foreground">No items to display</p>
         </CardContent>
@@ -380,30 +406,52 @@ function BoardTable({ board, renderCellValue }: BoardTableProps) {
   }
 
   return (
-    <Card>
+    <Card className="shadow-sm">
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg">{boardName}</CardTitle>
+        <CardTitle className="text-lg font-semibold text-gray-800">{boardName}</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead className="font-semibold">Item</TableHead>
+              <TableRow className="bg-gray-50 border-b border-gray-100">
+                {/* Only show Item column if "name" is NOT in visible columns */}
+                {!hasNameColumn && (
+                  <TableHead className="font-semibold text-gray-600 uppercase text-xs tracking-wider py-3 px-4">
+                    Item
+                  </TableHead>
+                )}
                 {columns.map((col) => (
-                  <TableHead key={col?.id ?? Math.random()} className="font-semibold">
+                  <TableHead
+                    key={col?.id ?? Math.random()}
+                    className="font-semibold text-gray-600 uppercase text-xs tracking-wider py-3 px-4"
+                  >
                     {col?.title ?? ""}
                   </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((item) => (
-                <TableRow key={item?.id ?? Math.random()}>
-                  <TableCell className="font-medium">{item?.name ?? "-"}</TableCell>
+              {items.map((item, index) => (
+                <TableRow
+                  key={item?.id ?? Math.random()}
+                  className={`border-b border-gray-100 hover:bg-gray-50 transition-colors
+                    ${index % 2 === 1 ? "bg-gray-50/50" : "bg-white"}`}
+                >
+                  {/* Only show Item cell if "name" is NOT in visible columns */}
+                  {!hasNameColumn && (
+                    <TableCell className="font-medium text-gray-900 py-3 px-4">
+                      {item?.name ?? "—"}
+                    </TableCell>
+                  )}
                   {columns.map((col) => (
-                    <TableCell key={col?.id ?? Math.random()}>
-                      {renderCellValue(item?.column_values?.[col?.id], col?.type ?? "")}
+                    <TableCell
+                      key={col?.id ?? Math.random()}
+                      className={`py-3 px-4 ${col.id === "name" ? "font-medium text-gray-900" : ""}`}
+                    >
+                      {col.id === "name"
+                        ? item?.name ?? "—"
+                        : renderCellValue(item?.column_values?.[col?.id], col?.type ?? "")}
                     </TableCell>
                   ))}
                 </TableRow>
