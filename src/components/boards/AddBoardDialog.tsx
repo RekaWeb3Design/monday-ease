@@ -38,7 +38,6 @@ import {
 } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useMondayBoards } from "@/hooks/useMondayBoards";
@@ -48,6 +47,7 @@ import { useMondayUsers } from "@/hooks/useMondayUsers";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { FilterValueMultiSelect } from "./FilterValueMultiSelect";
 import type { MondayBoard } from "@/types";
 
 interface AddBoardDialogProps {
@@ -86,14 +86,18 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
 
   // Step 4/5: Checkbox-based member selection
   const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
-  const [memberFilterValues, setMemberFilterValues] = useState<Record<string, string>>({});
+  const [memberFilterValues, setMemberFilterValues] = useState<Record<string, string[]>>({});
   const [openPopovers, setOpenPopovers] = useState<Record<string, boolean>>({});
 
   // Step 4/5: Checkbox-based client selection
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [selectedClients, setSelectedClients] = useState<Set<string>>(new Set());
-  const [clientFilterValues, setClientFilterValues] = useState<Record<string, string>>({});
+  const [clientFilterValues, setClientFilterValues] = useState<Record<string, string[]>>({});
   const [clientsLoading, setClientsLoading] = useState(false);
+
+  // Column values for filter dropdown (fetched once, shared across all instances)
+  const [columnValues, setColumnValues] = useState<{ value: string; color?: string }[]>([]);
+  const [columnValuesLoading, setColumnValuesLoading] = useState(false);
 
   // Dynamic steps based on audience selection
   const steps = useMemo(() => {
@@ -174,6 +178,54 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     }
   }, [currentStep, isPersonColumn, mondayUsers.length, fetchUsers]);
 
+  // Fetch column values when filter column changes
+  useEffect(() => {
+    if (!selectedBoard?.id || !filterColumnId || filterColumnId === 'none') {
+      setColumnValues([]);
+      return;
+    }
+    
+    const filterCol = selectedBoard.columns.find(c => c.id === filterColumnId);
+    if (!filterCol) {
+      setColumnValues([]);
+      return;
+    }
+
+    setColumnValuesLoading(true);
+    
+    const fetchValues = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        
+        const res = await fetch(
+          `https://yqjugovqhvxoxvrceqqp.supabase.co/functions/v1/get-column-values`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              board_id: selectedBoard.id,
+              column_id: filterColumnId,
+              column_type: filterCol.type || null,
+            }),
+          }
+        );
+        const data = await res.json();
+        setColumnValues(data.values || []);
+      } catch (error) {
+        console.error('Failed to fetch column values:', error);
+        setColumnValues([]);
+      } finally {
+        setColumnValuesLoading(false);
+      }
+    };
+    
+    fetchValues();
+  }, [selectedBoard?.id, filterColumnId]);
+
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
@@ -189,6 +241,8 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
       setClientFilterValues({});
       setOpenPopovers({});
       setClients([]);
+      setColumnValues([]);
+      setColumnValuesLoading(false);
     }
   }, [open]);
 
@@ -213,8 +267,13 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     });
   };
 
-  const handleMemberFilterChange = (memberId: string, value: string) => {
-    setMemberFilterValues(prev => ({ ...prev, [memberId]: value }));
+  const handleMemberFilterChange = (memberId: string, values: string[]) => {
+    setMemberFilterValues(prev => ({ ...prev, [memberId]: values }));
+  };
+
+  // For person column, we still use single string value
+  const handleMemberPersonChange = (memberId: string, value: string) => {
+    setMemberFilterValues(prev => ({ ...prev, [memberId]: value ? [value] : [] }));
   };
 
   const toggleClient = (clientId: string) => {
@@ -229,8 +288,8 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     });
   };
 
-  const handleClientFilterChange = (clientId: string, value: string) => {
-    setClientFilterValues(prev => ({ ...prev, [clientId]: value }));
+  const handleClientFilterChange = (clientId: string, values: string[]) => {
+    setClientFilterValues(prev => ({ ...prev, [clientId]: values }));
   };
 
   const handleSubmit = async () => {
@@ -239,16 +298,16 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
 
     const filterColumn = selectedBoard.columns.find((c) => c.id === filterColumnId);
 
-    // Only include SELECTED members
+    // Only include SELECTED members - join array to comma-separated string
     const memberMappingsList = Array.from(selectedMembers).map(memberId => ({
       member_id: memberId,
-      filter_value: memberFilterValues[memberId] || '',
+      filter_value: (memberFilterValues[memberId] || []).join(','),
     }));
 
-    // Only include SELECTED clients
+    // Only include SELECTED clients - join array to comma-separated string
     const clientMappingsList = Array.from(selectedClients).map(clientId => ({
       client_id: clientId,
-      filter_value: clientFilterValues[clientId] || '',
+      filter_value: (clientFilterValues[clientId] || []).join(','),
     }));
 
     const success = await createConfig({
@@ -510,7 +569,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
                                     className="w-full justify-between font-normal h-9 text-sm"
                                     disabled={usersLoading}
                                   >
-                                    {memberFilterValues[member.id] || "Select Monday.com user..."}
+                                    {(memberFilterValues[member.id]?.[0]) || "Select Monday.com user..."}
                                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                   </Button>
                                 </PopoverTrigger>
@@ -526,14 +585,14 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
                                               key={`org-${orgMember.id}`}
                                               value={`org ${orgMember.display_name || ''} ${orgMember.email}`}
                                               onSelect={() => {
-                                                handleMemberFilterChange(member.id, orgMember.display_name || orgMember.email);
+                                                handleMemberPersonChange(member.id, orgMember.display_name || orgMember.email);
                                                 setOpenPopovers((prev) => ({ ...prev, [member.id]: false }));
                                               }}
                                             >
                                               <Check
                                                 className={cn(
                                                   "mr-2 h-4 w-4",
-                                                  memberFilterValues[member.id] === orgMember.display_name
+                                                  (memberFilterValues[member.id]?.[0] || '') === (orgMember.display_name || orgMember.email)
                                                     ? "opacity-100"
                                                     : "opacity-0"
                                                 )}
@@ -557,14 +616,14 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
                                               key={`monday-${user.id}`}
                                               value={`monday ${user.name} ${user.email || ''}`}
                                               onSelect={() => {
-                                                handleMemberFilterChange(member.id, user.name);
+                                                handleMemberPersonChange(member.id, user.name);
                                                 setOpenPopovers((prev) => ({ ...prev, [member.id]: false }));
                                               }}
                                             >
                                               <Check
                                                 className={cn(
                                                   "mr-2 h-4 w-4",
-                                                  memberFilterValues[member.id] === user.name
+                                                  (memberFilterValues[member.id]?.[0] || '') === user.name
                                                     ? "opacity-100"
                                                     : "opacity-0"
                                                 )}
@@ -587,11 +646,12 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
                                 </PopoverContent>
                               </Popover>
                             ) : (
-                              <Input
-                                placeholder="Enter filter value..."
-                                value={memberFilterValues[member.id] || ""}
-                                onChange={(e) => handleMemberFilterChange(member.id, e.target.value)}
-                                className="h-9 text-sm"
+                              <FilterValueMultiSelect
+                                availableValues={columnValues}
+                                loading={columnValuesLoading}
+                                selectedValues={memberFilterValues[member.id] || []}
+                                onChange={(values) => handleMemberFilterChange(member.id, values)}
+                                placeholder="Select filter values..."
                               />
                             )}
                           </div>
@@ -646,11 +706,12 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
                         {/* Only show filter input when client is selected AND filter column exists */}
                         {selectedClients.has(client.id) && hasFilterColumn && (
                           <div className="ml-7">
-                            <Input
-                              placeholder="Enter filter value (optional - leave empty for all rows)..."
-                              value={clientFilterValues[client.id] || ""}
-                              onChange={(e) => handleClientFilterChange(client.id, e.target.value)}
-                              className="h-9 text-sm"
+                            <FilterValueMultiSelect
+                              availableValues={columnValues}
+                              loading={columnValuesLoading}
+                              selectedValues={clientFilterValues[client.id] || []}
+                              onChange={(values) => handleClientFilterChange(client.id, values)}
+                              placeholder="Select filter values..."
                             />
                           </div>
                         )}

@@ -160,14 +160,22 @@ export function BoardConfigCard({ config, members, onEdit, onDelete }: BoardConf
                 {config.memberAccess.map((access) => (
                   <div
                     key={access.id}
-                    className="flex items-center justify-between text-sm"
+                    className="flex items-center justify-between text-sm gap-2"
                   >
-                    <span className="text-muted-foreground">
+                    <span className="text-muted-foreground shrink-0">
                       {getMemberName(access.member_id)}
                     </span>
-                    <Badge variant="outline" className="font-mono text-xs">
-                      {access.filter_value}
-                    </Badge>
+                    {access.filter_value ? (
+                      <div className="flex flex-wrap gap-1 justify-end">
+                        {access.filter_value.split(',').map((v, i) => (
+                          <Badge key={i} variant="secondary" className="text-xs font-normal">
+                            {v.trim()}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <Badge variant="outline" className="text-xs">All rows</Badge>
+                    )}
                   </div>
                 ))}
               </div>
@@ -192,14 +200,22 @@ export function BoardConfigCard({ config, members, onEdit, onDelete }: BoardConf
                 {config.clientAccess.map((access) => (
                   <div
                     key={access.id}
-                    className="flex items-center justify-between text-sm"
+                    className="flex items-center justify-between text-sm gap-2"
                   >
-                    <span className="text-muted-foreground">
+                    <span className="text-muted-foreground shrink-0">
                       {access.clients?.company_name || "Unknown Client"}
                     </span>
-                    <Badge variant="outline" className="font-mono text-xs">
-                      {access.filter_value || "All rows"}
-                    </Badge>
+                    {access.filter_value ? (
+                      <div className="flex flex-wrap gap-1 justify-end">
+                        {access.filter_value.split(',').map((v, i) => (
+                          <Badge key={i} variant="secondary" className="text-xs font-normal">
+                            {v.trim()}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <Badge variant="outline" className="text-xs">All rows</Badge>
+                    )}
                   </div>
                 ))}
               </div>
