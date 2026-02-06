@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Check, Copy, Loader2, RefreshCw } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, Loader2, RefreshCw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -72,6 +72,7 @@ export function EditClientDialog({
     fetchClientBoardAccess,
     updateBoardAccess,
     isUpdatingAccess,
+    getClientPassword,
   } = useClients();
   const { configs: boardConfigs } = useBoardConfigs();
 
@@ -88,6 +89,10 @@ export function EditClientDialog({
   const [loadingAccess, setLoadingAccess] = useState(false);
   const [newPassword, setNewPassword] = useState<string | null>(null);
   const [passwordCopied, setPasswordCopied] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState<string | null>(null);
+  const [isLoadingPassword, setIsLoadingPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
 
   // Initialize form when client changes
   useEffect(() => {
@@ -205,10 +210,48 @@ export function EditClientDialog({
     toast.success("Password copied to clipboard");
   };
 
+  const handleViewPassword = async () => {
+    try {
+      setIsLoadingPassword(true);
+      const result = await getClientPassword(client.id);
+      setCurrentPassword(result.password);
+      setShowPassword(true);
+    } catch (error) {
+      console.error("Error fetching password:", error);
+      toast.error("Failed to fetch password");
+    } finally {
+      setIsLoadingPassword(false);
+    }
+  };
+
+  const handleHidePassword = () => {
+    setCurrentPassword(null);
+    setShowPassword(false);
+  };
+
+  const copyCurrentPassword = async () => {
+    if (!currentPassword) return;
+    await navigator.clipboard.writeText(currentPassword);
+    setPasswordCopied(true);
+    setTimeout(() => setPasswordCopied(false), 2000);
+    toast.success("Password copied to clipboard");
+  };
+
+  const copyUrl = async () => {
+    const url = `${window.location.origin}/c/${client.slug}`;
+    await navigator.clipboard.writeText(url);
+    setUrlCopied(true);
+    setTimeout(() => setUrlCopied(false), 2000);
+    toast.success("URL copied to clipboard");
+  };
+
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
       setNewPassword(null);
       setPasswordCopied(false);
+      setCurrentPassword(null);
+      setShowPassword(false);
+      setUrlCopied(false);
     }
     onOpenChange(newOpen);
   };
@@ -424,71 +467,133 @@ export function EditClientDialog({
 
           {/* Security Tab */}
           <TabsContent value="security" className="space-y-4 mt-4">
+            {/* Dashboard URL Section */}
             <Card>
-              <CardContent className="p-4 space-y-4">
-                <div>
-                  <h4 className="font-medium mb-1">Dashboard URL</h4>
-                  <p className="text-sm text-muted-foreground font-mono">
-                    {window.location.origin}/c/{client.slug}
-                  </p>
+              <CardContent className="p-4">
+                <h4 className="font-medium mb-2">Dashboard URL</h4>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={`${window.location.origin}/c/${client.slug}`}
+                    readOnly
+                    className="font-mono text-sm"
+                  />
+                  <Button variant="outline" size="icon" onClick={copyUrl}>
+                    {urlCopied ? (
+                      <Check className="h-4 w-4 text-[hsl(var(--monday-green))]" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
                 </div>
+              </CardContent>
+            </Card>
 
-                <div className="border-t pt-4">
-                  <h4 className="font-medium mb-2">Password</h4>
-                  {newPassword ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Input
-                          value={newPassword}
-                          readOnly
-                          className="font-mono text-sm bg-[hsl(var(--monday-yellow))]/20"
-                        />
-                        <Button variant="outline" size="icon" onClick={copyPassword}>
-                          {passwordCopied ? (
-                            <Check className="h-4 w-4 text-[hsl(var(--monday-green))]" />
-                          ) : (
-                            <Copy className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                      <p className="text-xs text-destructive">
-                        ⚠️ Save this password now. You won't be able to see it again.
-                      </p>
+            {/* Current Password Section */}
+            <Card>
+              <CardContent className="p-4">
+                <h4 className="font-medium mb-2">Current Password</h4>
+                {showPassword && currentPassword ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={currentPassword}
+                        readOnly
+                        className="font-mono text-sm"
+                      />
+                      <Button variant="outline" size="icon" onClick={copyCurrentPassword}>
+                        {passwordCopied ? (
+                          <Check className="h-4 w-4 text-[hsl(var(--monday-green))]" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button variant="outline" size="icon" onClick={handleHidePassword}>
+                        <EyeOff className="h-4 w-4" />
+                      </Button>
                     </div>
-                  ) : (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="outline" disabled={isRegenerating}>
-                          <RefreshCw className="mr-2 h-4 w-4" />
-                          Regenerate Password
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Regenerate Password?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This will create a new password for this client. Their
-                            current password will stop working immediately. You'll
-                            need to share the new password with them.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={handleRegeneratePassword}>
-                            {isRegenerating ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Regenerating...
-                              </>
-                            ) : (
-                              "Regenerate"
-                            )}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={handleViewPassword}
+                    disabled={isLoadingPassword}
+                  >
+                    {isLoadingPassword ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="mr-2 h-4 w-4" />
+                        Show Password
+                      </>
+                    )}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Regenerate Password Section */}
+            <Card>
+              <CardContent className="p-4">
+                <h4 className="font-medium mb-2">Regenerate Password</h4>
+                <p className="text-sm text-muted-foreground mb-3">
+                  This will create a new password. The current password will stop working immediately.
+                </p>
+                {newPassword ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={newPassword}
+                        readOnly
+                        className="font-mono text-sm bg-[hsl(var(--monday-yellow))]/20"
+                      />
+                      <Button variant="outline" size="icon" onClick={copyPassword}>
+                        {passwordCopied ? (
+                          <Check className="h-4 w-4 text-[hsl(var(--monday-green))]" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-destructive">
+                      ⚠️ Save this password now. You won't be able to see it again.
+                    </p>
+                  </div>
+                ) : (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" disabled={isRegenerating}>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        Regenerate Password
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Regenerate Password?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will create a new password for this client. Their
+                          current password will stop working immediately. You'll
+                          need to share the new password with them.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleRegeneratePassword}>
+                          {isRegenerating ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Regenerating...
+                            </>
+                          ) : (
+                            "Regenerate"
+                          )}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

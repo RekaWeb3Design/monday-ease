@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Check, Copy, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -65,17 +65,19 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
   const [passwordCopied, setPasswordCopied] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
 
-  // Initialize boards when dialog opens or configs load
-  const initializeBoards = () => {
-    setBoards(
-      boardConfigs.map((config) => ({
-        id: config.id,
-        name: config.board_name,
-        selected: false,
-        filterValue: "",
-      }))
-    );
-  };
+  // Initialize boards when dialog is open and boardConfigs are loaded
+  useEffect(() => {
+    if (open && !loadingBoards && boardConfigs.length > 0) {
+      setBoards(
+        boardConfigs.map((config) => ({
+          id: config.id,
+          name: config.board_name,
+          selected: false,
+          filterValue: "",
+        }))
+      );
+    }
+  }, [open, boardConfigs, loadingBoards]);
 
   // Reset state when dialog closes
   const handleOpenChange = (newOpen: boolean) => {
@@ -93,8 +95,6 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
       setResult(null);
       setPasswordCopied(false);
       setUrlCopied(false);
-    } else {
-      initializeBoards();
     }
     onOpenChange(newOpen);
   };
