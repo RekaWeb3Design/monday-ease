@@ -323,7 +323,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     setIsSubmitting(false);
 
     if (success) {
-      onOpenChange(false);
+      handleClose();
       onSuccess();
     }
   };
