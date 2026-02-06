@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Loader2, ChevronLeft, ChevronRight, Check, Info, ChevronsUpDown, User, Users, Building2 } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, Check, Info, ChevronsUpDown, User, Users, Building2, X } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -343,14 +343,37 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
 
   const hasFilterColumn = filterColumnId && filterColumnId !== 'none';
 
+  // Explicit close handler - only way to close the dialog
+  const handleClose = () => {
+    onOpenChange(false);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog 
+      open={open} 
+      onOpenChange={(isOpen) => {
+        // Only allow opening, not auto-closing (prevents tab switch closing)
+        if (isOpen) onOpenChange(isOpen);
+      }}
+    >
       <DialogContent 
         className="max-w-lg"
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
+        onFocusOutside={(e) => e.preventDefault()}
+        // Hide default close button since we provide our own
+        onEscapeKeyDown={(e) => e.preventDefault()}
       >
-        <DialogHeader>
+        <DialogHeader className="relative">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute right-0 top-0 h-6 w-6 rounded-sm opacity-70 hover:opacity-100"
+            onClick={handleClose}
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </Button>
           <DialogTitle>Add Board Configuration</DialogTitle>
           <DialogDescription>
             Step {currentStepIndex + 1} of {totalSteps}: {getStepLabel(currentStep)}
@@ -742,7 +765,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
             )}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button variant="outline" onClick={handleClose}>
               Cancel
             </Button>
             {isLastStep ? (
