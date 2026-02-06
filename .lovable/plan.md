@@ -1,167 +1,123 @@
 
-# Fix Plan: Password Reset Form Not Appearing After Clicking Email Link
 
-## Problem Summary
+# Javítási Terv: Password Reset Betöltés Végtelen Ciklusban
 
-When users click the password reset link from their email, the page shows an infinite loading spinner instead of the password reset form. The URL shows `/auth#` (empty hash) after loading.
+## A Probléma Azonosítása
 
-## Root Cause Analysis
+A konzolban látható hibák alapján a recovery detekció **működik** ("Recovery flow detected from sessionStorage"), de a `loading` állapot soha nem válik `false`-ra, mert az AuthContext végtelen ciklusban fut.
 
-The issue is a **race condition** between Supabase's URL token processing and React's component mounting:
+## Gyökér Ok
 
-1. **Supabase processes the URL before React renders**: When the page loads, Supabase's JS client immediately detects the recovery token in the URL hash and exchanges it for a session. **Critically, it clears the URL hash after processing.**
-
-2. **The detection logic runs too late**: By the time React's `useEffect` in `Auth.tsx` runs, the URL hash has already been cleared by Supabase. The current code checks for `type=recovery` in the hash, but it's already gone.
-
-3. **The sessionStorage fallback is in the wrong place**: The code tries to save `recovery_flow` to sessionStorage *inside* the same `useEffect` that checks for it. But this only happens if the hash contains `type=recovery`, which it doesn't (Supabase already cleared it).
-
-4. **Immediate redirect occurs**: Since `showPasswordSetup` stays `false`, and the user now has a valid session, the redirect logic (`if (!loading && user && !showPasswordSetup) navigate("/")`) kicks in, but the home page's data loading keeps spinning.
-
-## Solution
-
-Move the recovery detection to the **earliest possible point** - before React renders, and before Supabase clears the hash. This requires:
-
-1. **Capture the recovery intent immediately on page load** - before any React effects or Supabase processing
-2. **Store it in sessionStorage synchronously** - outside of React's effect lifecycle
-3. **Check sessionStorage in the Auth component** - as the primary source of truth
-
-## Implementation Details
-
-### File 1: `src/pages/Auth.tsx`
-
-**Changes:**
-
-1. **Add synchronous detection at module level** (runs when the file is first imported, before component renders):
+Az `AuthContext.tsx` 269. sorában a useEffect dependency array tartalmazza a `profile` és `organization` változókat:
 
 ```typescript
-// At the top of the file, outside the component:
-// Capture recovery intent IMMEDIATELY before Supabase clears the hash
-// This runs synchronously when the module loads
-const initialHash = window.location.hash;
-if (initialHash.includes('type=recovery')) {
-  sessionStorage.setItem('recovery_flow', 'true');
+}, [authInitialized, user?.id, initialDataLoaded, profile, organization, ...]);
+```
+
+**Probléma menete:**
+1. Felhasználó megérkezik a recovery link-kel
+2. Supabase session létrejön, `authInitialized: true`, `user` beállítva
+3. Az effect elindul, `setLoading(true)` meghívódik
+4. A `fetchProfile()` hívás **hibázik** ("Failed to fetch" - valószínűleg a token még nincs teljesen kész)
+5. A `profile` marad `null`
+6. A `finally` block beállítja `setLoading(false)`
+7. **DE** mivel `profile` változott (vagy nem változott de a dependency array-ban van), az effect **újra indul**
+8. `setLoading(true)` megint...
+9. Végtelen ciklus!
+
+Ráadásul a jelenlegi logika:
+```typescript
+// Skip re-fetching if we already have data for this user (token refresh scenario)
+if (initialDataLoaded && profile && organization) {
+  setLoading(false);
+  return;
 }
 ```
 
-2. **Simplify the useEffect to just read from sessionStorage**:
+Ez a feltétel SOHA nem lesz igaz ha `profile` `null` marad a fetch hiba miatt!
+
+## Megoldás
+
+### 1. Eltávolítani `profile` és `organization` a dependency array-ból
+
+Ezek **nem kell** dependency-k legyenek, mert az effect feladata a beállításuk, nem a figyelésük.
+
+### 2. Módosítani az Auth.tsx render logikát
+
+A password reset formot **ne** az AuthContext `loading` állapotától függően mutassuk, hanem a **saját** `checkingRecovery` és `showPasswordSetup` állapotoktól.
+
+---
+
+## Fájlok és Változások
+
+### Fájl 1: `src/contexts/AuthContext.tsx`
+
+**Változás:** A 269. sorban a dependency array-ból eltávolítani a `profile` és `organization` változókat:
 
 ```typescript
-useEffect(() => {
-  const detectRecoveryMode = () => {
-    // Check sessionStorage for recovery intent (set by module-level code)
-    const savedRecoveryIntent = sessionStorage.getItem('recovery_flow');
-    if (savedRecoveryIntent) {
-      setShowPasswordSetup(true);
-      sessionStorage.removeItem('recovery_flow');
-    }
-    setCheckingRecovery(false);
-  };
-  
-  detectRecoveryMode();
-}, []);
+// ELŐTTE (problémás):
+}, [authInitialized, user?.id, initialDataLoaded, profile, organization, fetchProfile, fetchOrganization, activateInvitedMember]);
+
+// UTÁNA (javított):
+}, [authInitialized, user?.id, initialDataLoaded, fetchProfile, fetchOrganization, activateInvitedMember]);
 ```
 
-3. **Add listener for Supabase PASSWORD_RECOVERY event** as backup:
+Ez megakadályozza a végtelen ciklust, mivel az effect nem fog újra futni amikor a profile/organization változik.
 
-The Supabase `onAuthStateChange` fires a `PASSWORD_RECOVERY` event specifically for this case. We should also listen for this:
+### Fájl 2: `src/pages/Auth.tsx`
 
-```typescript
-useEffect(() => {
-  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'PASSWORD_RECOVERY') {
-      setShowPasswordSetup(true);
-      setCheckingRecovery(false);
-    }
-  });
-  
-  return () => subscription.unsubscribe();
-}, []);
-```
-
-4. **Prevent redirect when in recovery mode**: The redirect effect already has `!showPasswordSetup` condition, but we need to ensure `checkingRecovery` also blocks it:
+**Változás:** A render logikát módosítani, hogy a password setup form **ne** függjön az AuthContext loading-tól:
 
 ```typescript
-useEffect(() => {
-  if (!loading && !checkingRecovery && user && !showPasswordSetup) {
-    navigate("/", { replace: true });
-  }
-}, [user, loading, navigate, showPasswordSetup, checkingRecovery]);
-```
+// ELŐTTE (359-366 sor):
+if (loading || checkingRecovery) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
 
-### Complete Code Changes
+// UTÁNA:
+// Ha recovery/password setup módban vagyunk, NEM várunk az AuthContext loading-ra
+if (checkingRecovery) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
 
-**src/pages/Auth.tsx (lines 1-30 area):**
+// Ha password setup-ot mutatunk, NEM kell az AuthContext loading
+// (a jelszó beállítás formja nem függ a profil/org adatoktól)
+if (showPasswordSetup) {
+  // Közvetlenül megjelenítjük a password setup cardot
+  // (lásd alább a JSX-ben)
+}
 
-Add after imports, before component:
-```typescript
-// CRITICAL: Capture recovery intent IMMEDIATELY before Supabase clears the hash
-// This code runs synchronously when the module is first imported
-const initialHash = typeof window !== 'undefined' ? window.location.hash : '';
-if (initialHash.includes('type=recovery')) {
-  sessionStorage.setItem('recovery_flow', 'true');
+// Egyéb esetben várjuk az auth loading-ot
+if (loading && !showPasswordSetup) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
 }
 ```
 
-**src/pages/Auth.tsx (lines 85-110 area):**
+---
 
-Replace the recovery detection useEffect:
-```typescript
-// Listen for Supabase PASSWORD_RECOVERY event
-useEffect(() => {
-  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'PASSWORD_RECOVERY') {
-      console.log('PASSWORD_RECOVERY event detected');
-      setShowPasswordSetup(true);
-      setCheckingRecovery(false);
-    }
-  });
-  
-  return () => subscription.unsubscribe();
-}, []);
+## Összefoglaló
 
-// Check sessionStorage for recovery intent (set by module-level code or previous page load)
-useEffect(() => {
-  const detectRecoveryMode = () => {
-    const savedRecoveryIntent = sessionStorage.getItem('recovery_flow');
-    if (savedRecoveryIntent) {
-      console.log('Recovery flow detected from sessionStorage');
-      setShowPasswordSetup(true);
-      sessionStorage.removeItem('recovery_flow');
-    }
-    setCheckingRecovery(false);
-  };
-  
-  // Small delay to ensure Supabase has processed the token
-  // but the PASSWORD_RECOVERY event listener above is the primary method
-  const timer = setTimeout(detectRecoveryMode, 100);
-  return () => clearTimeout(timer);
-}, []);
-```
+| Fájl | Változás | Cél |
+|------|----------|-----|
+| `src/contexts/AuthContext.tsx` | Eltávolítani `profile, organization` a dependency array-ból | Végtelen ciklus megakadályozása |
+| `src/pages/Auth.tsx` | Módosítani a loading logikát hogy password setup ne függjön az AuthContext loading-tól | Password form megjelenítése a profil fetch hibától függetlenül |
 
-**src/pages/Auth.tsx (lines 137-142 area):**
+## Elvárt Eredmény
 
-Update redirect effect to also check `checkingRecovery`:
-```typescript
-useEffect(() => {
-  if (!loading && !checkingRecovery && user && !showPasswordSetup) {
-    navigate("/", { replace: true });
-  }
-}, [user, loading, navigate, showPasswordSetup, checkingRecovery]);
-```
+A javítások után:
+- A password reset link megnyitásakor megjelenik a jelszó beállító form
+- A form nem függ az AuthContext adatbetöltésétől
+- Ha a profil fetch hibázik, az nem blokkolja a password reset formot
 
-## Technical Summary
-
-| Component | Change |
-|-----------|--------|
-| Module-level code | Synchronously capture `type=recovery` from URL hash before React renders |
-| PASSWORD_RECOVERY listener | Add Supabase auth event listener for the `PASSWORD_RECOVERY` event |
-| Recovery detection effect | Read from sessionStorage, remove dependency on URL hash |
-| Redirect effect | Block redirect while `checkingRecovery` is true |
-
-## Expected Outcome
-
-After implementing these changes:
-- The password reset link will be captured before Supabase clears the URL hash
-- The `PASSWORD_RECOVERY` event from Supabase will trigger the password setup form
-- Users will see the password reset form instead of an infinite loading spinner
-- The loading spinner will only show briefly while checking for recovery mode
