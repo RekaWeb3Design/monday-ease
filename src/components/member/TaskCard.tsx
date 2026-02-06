@@ -4,6 +4,7 @@ import type { MondayTask, MondayColumnValue } from "@/types";
 
 interface TaskCardProps {
   task: MondayTask;
+  showBoardName?: boolean;
 }
 
 // Get status badge color based on status text
@@ -46,7 +47,7 @@ function formatColumnValue(col: MondayColumnValue): string {
   return String(col.value);
 }
 
-export function TaskCard({ task }: TaskCardProps) {
+export function TaskCard({ task, showBoardName = true }: TaskCardProps) {
   // Find the status column
   const statusCol = task.column_values.find(isStatusColumn);
   const statusText = statusCol?.text || null;
@@ -65,9 +66,11 @@ export function TaskCard({ task }: TaskCardProps) {
           </CardTitle>
         </div>
         <div className="flex items-center gap-2 pt-1">
-          <Badge variant="outline" className="text-xs">
-            {task.board_name}
-          </Badge>
+          {showBoardName && (
+            <Badge variant="outline" className="text-xs">
+              {task.board_name}
+            </Badge>
+          )}
           {statusCol && statusText && (() => {
             const labelColor = getColumnColor(statusCol);
             return (
