@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Check, Copy, Eye, EyeOff, Loader2, RefreshCw } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -483,6 +483,13 @@ export function EditClientDialog({
                     ) : (
                       <Copy className="h-4 w-4" />
                     )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => window.open(`${window.location.origin}/c/${client.slug}`, "_blank")}
+                  >
+                    <ExternalLink className="h-4 w-4" />
                   </Button>
                 </div>
               </CardContent>
