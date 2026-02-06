@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useIntegration } from "@/hooks/useIntegration";
 import { useToast } from "@/hooks/use-toast";
-import type { BoardConfig, MemberBoardAccess, BoardConfigWithAccess } from "@/types";
+import type { BoardConfig, MemberBoardAccess, BoardConfigWithAccess, ClientBoardAccessWithClient } from "@/types";
 
 interface CreateConfigInput {
   monday_board_id: string;
@@ -13,7 +13,9 @@ interface CreateConfigInput {
   filter_column_name: string | null;
   filter_column_type: string | null;
   visible_columns: string[];
+  target_audience?: 'team' | 'clients' | 'both';
   memberMappings: { member_id: string; filter_value: string }[];
+  clientMappings?: { client_id: string; filter_value: string }[];
 }
 
 interface UpdateConfigInput {
@@ -94,6 +96,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
       // Fetch member access for ACTIVE configs only
       const activeConfigIds = activeConfigsRaw.map(c => c.id);
       let accessData: MemberBoardAccess[] = [];
+      let clientAccessData: ClientBoardAccessWithClient[] = [];
       
       if (activeConfigIds.length > 0) {
         const { data: accessResult, error: accessError } = await supabase
@@ -103,18 +106,29 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
 
         if (accessError) throw accessError;
         accessData = (accessResult || []) as MemberBoardAccess[];
+
+        // Also fetch client access
+        const { data: clientAccessResult, error: clientAccessError } = await supabase
+          .from("client_board_access")
+          .select("*, clients(company_name)")
+          .in("board_config_id", activeConfigIds);
+
+        if (clientAccessError) throw clientAccessError;
+        clientAccessData = (clientAccessResult || []) as ClientBoardAccessWithClient[];
       }
 
-      // Map active configs with member access
+      // Map active configs with member access and client access
       const activeConfigs: BoardConfigWithAccess[] = activeConfigsRaw.map(config => ({
         ...mapConfigFields(config),
         memberAccess: accessData.filter(a => a.board_config_id === config.id),
+        clientAccess: clientAccessData.filter(a => a.board_config_id === config.id),
       }));
 
       // Map inactive configs (no member access needed - read-only)
       const inactiveConfigsMapped: BoardConfigWithAccess[] = inactiveConfigsRaw.map(config => ({
         ...mapConfigFields(config),
         memberAccess: [],
+        clientAccess: [],
       }));
 
       return { active: activeConfigs, inactive: inactiveConfigsMapped };
@@ -143,7 +157,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
       }
 
       try {
-        // Insert board config with workspace_name for display purposes
+        // Insert board config with workspace_name and target_audience
         const { data: configData, error: configError } = await supabase
           .from("board_configs")
           .insert({
@@ -156,6 +170,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
             visible_columns: input.visible_columns,
             monday_account_id: integration?.monday_account_id || null,
             workspace_name: integration?.workspace_name || null,
+            target_audience: input.target_audience || 'team',
             is_active: true,
           })
           .select()
@@ -179,6 +194,25 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
               .insert(mappings);
 
             if (mappingError) throw mappingError;
+          }
+        }
+
+        // Insert client mappings
+        if (input.clientMappings && input.clientMappings.length > 0) {
+          const clientMappingsToInsert = input.clientMappings
+            .filter((m) => m.filter_value.trim() !== "")
+            .map((m) => ({
+              board_config_id: configData.id,
+              client_id: m.client_id,
+              filter_value: m.filter_value.trim() || null,
+            }));
+
+          if (clientMappingsToInsert.length > 0) {
+            const { error: clientMappingError } = await supabase
+              .from("client_board_access")
+              .insert(clientMappingsToInsert);
+
+            if (clientMappingError) throw clientMappingError;
           }
         }
 
