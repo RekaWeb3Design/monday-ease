@@ -13,6 +13,8 @@ import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
 import MemberDashboard from "./pages/MemberDashboard";
 import Organization from "./pages/Organization";
+import Clients from "./pages/Clients";
+import ClientDashboard from "./pages/ClientDashboard";
 import Integrations from "./pages/Integrations";
 import BoardConfig from "./pages/BoardConfig";
 import Templates from "./pages/Templates";
@@ -76,6 +78,20 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/clients"
+              element={
+                <ProtectedRoute>
+                  <RequireOrganization>
+                    <AppLayout pageTitle="Clients">
+                      <Clients />
+                    </AppLayout>
+                  </RequireOrganization>
+                </ProtectedRoute>
+              }
+            />
+            {/* Public client dashboard - no auth required */}
+            <Route path="/c/:slug" element={<ClientDashboard />} />
             <Route
               path="/integrations"
               element={

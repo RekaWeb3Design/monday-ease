@@ -13,6 +13,7 @@ import {
   ClipboardList,
   Eye,
   LogOut,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
@@ -40,6 +41,7 @@ import type { NavItem } from "@/types";
 const ownerNavItems: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Organization", url: "/organization", icon: Building2 },
+  { title: "Clients", url: "/clients", icon: Users },
   { title: "Integrations", url: "/integrations", icon: Plug },
   { title: "Boards", url: "/boards", icon: LayoutGrid },
   { title: "Templates", url: "/templates", icon: Zap },

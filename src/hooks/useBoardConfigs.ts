@@ -54,6 +54,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
     is_active: config.is_active ?? true,
     monday_account_id: config.monday_account_id || null,
     workspace_name: config.workspace_name || null,
+    target_audience: config.target_audience || null,
     created_at: config.created_at,
     updated_at: config.updated_at,
   });
