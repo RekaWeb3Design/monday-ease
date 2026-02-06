@@ -345,7 +345,11 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent 
+        className="max-w-lg"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>Add Board Configuration</DialogTitle>
           <DialogDescription>
