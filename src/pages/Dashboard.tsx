@@ -244,7 +244,7 @@ export default function Dashboard() {
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Button variant="outline" asChild className="justify-start">
-              <Link to="/board-config">
+              <Link to="/boards">
                 <LayoutDashboard className="mr-2 h-4 w-4" />
                 Configure Boards
               </Link>

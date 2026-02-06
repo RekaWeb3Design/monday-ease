@@ -26,6 +26,7 @@ export type Database = {
           monday_account_id: string | null
           monday_board_id: string
           organization_id: string
+          target_audience: string | null
           updated_at: string | null
           visible_columns: Json | null
           workspace_name: string | null
@@ -41,6 +42,7 @@ export type Database = {
           monday_account_id?: string | null
           monday_board_id: string
           organization_id: string
+          target_audience?: string | null
           updated_at?: string | null
           visible_columns?: Json | null
           workspace_name?: string | null
@@ -56,6 +58,7 @@ export type Database = {
           monday_account_id?: string | null
           monday_board_id?: string
           organization_id?: string
+          target_audience?: string | null
           updated_at?: string | null
           visible_columns?: Json | null
           workspace_name?: string | null
@@ -63,6 +66,104 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "board_configs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_board_access: {
+        Row: {
+          board_config_id: string
+          client_id: string
+          created_at: string | null
+          filter_value: string | null
+          id: string
+        }
+        Insert: {
+          board_config_id: string
+          client_id: string
+          created_at?: string | null
+          filter_value?: string | null
+          id?: string
+        }
+        Update: {
+          board_config_id?: string
+          client_id?: string
+          created_at?: string | null
+          filter_value?: string | null
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_board_access_board_config_id_fkey"
+            columns: ["board_config_id"]
+            isOneToOne: false
+            referencedRelation: "board_configs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_board_access_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      clients: {
+        Row: {
+          client_type: string | null
+          company_name: string
+          contact_email: string
+          contact_name: string
+          created_at: string | null
+          id: string
+          last_login_at: string | null
+          notes: string | null
+          organization_id: string
+          password_hash: string
+          phone: string | null
+          slug: string
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          client_type?: string | null
+          company_name: string
+          contact_email: string
+          contact_name: string
+          created_at?: string | null
+          id?: string
+          last_login_at?: string | null
+          notes?: string | null
+          organization_id: string
+          password_hash: string
+          phone?: string | null
+          slug: string
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          client_type?: string | null
+          company_name?: string
+          contact_email?: string
+          contact_name?: string
+          created_at?: string | null
+          id?: string
+          last_login_at?: string | null
+          notes?: string | null
+          organization_id?: string
+          password_hash?: string
+          phone?: string | null
+          slug?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clients_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
