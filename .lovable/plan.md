@@ -1,184 +1,190 @@
 
+# Fix Plan: Password Reset Blank Page and Add Board Dialog Stability
 
-## Comprehensive Audit: AddBoardDialog Closes on Tab Switch
+## Issues Identified
 
-### Root Cause Analysis
+### Issue 1: Password Reset Link Shows Blank Page
+When users click the password reset link from their email, they land on `/auth#` and see a completely blank page instead of the password reset form.
 
-After thorough investigation, I've identified the **actual root cause** that the previous fixes missed:
+**Root Cause:** 
+- The Auth page renders `null` during the loading state (line 330-332)
+- When users arrive via the password recovery link, Supabase automatically exchanges the token in the URL hash for a session
+- During this exchange, the AuthContext is in a loading state, so the page shows nothing
+- The current detection logic only checks for `type=recovery` in the hash, but after Supabase processes the token, the hash format changes
 
-**The Problem Chain:**
-1. The `AddBoardDialog` component uses the parent's `open` prop in a `useEffect` that **resets all state when `open` becomes false** (lines 230-247)
-2. The component also has an `internalOpen` state that syncs from the parent `open` prop
-3. However, the parent component (`BoardConfig.tsx`) uses `useBoardConfigs()` which calls `useQuery` from TanStack Query
-4. **Critical Issue:** The `useOrganizationMembers()` hook used in `BoardConfig.tsx` does NOT have `refetchOnWindowFocus: false` - it uses plain `useState/useEffect` pattern which triggers `fetchMembers()` on mount
-5. When switching tabs and returning, if any data changes or re-renders occur in the parent, React may re-render `BoardConfig`, and subtle race conditions with the portal-based Dialog can cause issues
+**Solution:**
+- Check for password recovery scenario in multiple ways:
+  1. Check the URL hash for `type=recovery` (current method)
+  2. Also check if the URL hash contains recovery-related fragments like `access_token` with `type=recovery`
+  3. Show a loading spinner instead of a blank page while auth is processing
+- Add better handling for the PKCE flow where Supabase clears the hash after processing
 
-**The Real Problem (discovered by elimination):**
-Looking at the current implementation:
-- `internalOpen` state IS used correctly
-- `onOpenChange={() => {}}` DOES block automatic closes
-- `modal={false}` SHOULD disable focus tracking
-- All event handlers have `preventDefault()`
+### Issue 2: Add Board Modal Closes on Tab Switch
+The AddBoardDialog closes unexpectedly when users switch to another browser tab and return.
 
-**So why is it still closing?**
+**Root Cause:**
+- The `useOrganizationMembers` hook uses plain `useState/useEffect` instead of React Query
+- When `organization` reference changes (from AuthContext re-renders), `fetchMembers` is called again
+- The recent AuthContext changes added `user?.id` to dependencies which can trigger cascading updates
+- When switching tabs, browser visibility changes combined with state updates cause the dialog parent to re-render
 
-The issue is that `modal={false}` with Radix Dialog creates a **non-modal dialog that doesn't use a portal overlay** in the same way. When combined with `onInteractOutside`, `onFocusOutside`, etc., there's a conflict where the dialog content may still receive focus-loss events that aren't properly intercepted.
+**Solution:**
+- Convert `useOrganizationMembers` to use React Query with `refetchOnWindowFocus: false`
+- Use memoized dependency checks to prevent unnecessary re-fetches
+- Ensure stable organization ID reference rather than the full organization object
 
-Additionally, Radix Dialog's internal focus management with `modal={false}` behaves differently - it doesn't trap focus but still tracks it, and browser tab switches can trigger internal cleanup.
+---
 
-### The Real Solution
+## Technical Implementation
 
-The most robust solution is to **completely bypass Radix UI's Dialog closing mechanism** by:
+### Part 1: Fix Password Reset Blank Page
 
-1. **Remove the dependency on the parent `open` prop entirely for the Dialog component**
-2. **Use a completely controlled pattern where the Dialog never receives close signals from Radix internals**
-3. **Keep `modal={true}` (the default) but fully intercept ALL closing mechanisms**
+**File: `src/pages/Auth.tsx`**
 
-### Implementation Plan
+1. Add a dedicated loading state for recovery mode detection:
+```typescript
+const [isRecoveryMode, setIsRecoveryMode] = useState(false);
+const [checkingRecovery, setCheckingRecovery] = useState(true);
+```
 
-#### Step 1: Refactor State Management in AddBoardDialog.tsx
+2. Enhance the recovery detection useEffect to handle multiple scenarios:
+```typescript
+useEffect(() => {
+  const detectRecoveryMode = async () => {
+    const hash = window.location.hash;
+    
+    // Check for recovery type in hash
+    if (hash.includes('type=recovery')) {
+      setIsRecoveryMode(true);
+      setShowPasswordSetup(true);
+    }
+    
+    // Also check for recovery after token exchange
+    // (user might already have a session from the recovery flow)
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      // Check if this is a recovery session by looking at the aal claim
+      // or by checking if we just came from a recovery link
+      const urlHadRecovery = sessionStorage.getItem('recovery_flow');
+      if (urlHadRecovery) {
+        setShowPasswordSetup(true);
+        sessionStorage.removeItem('recovery_flow');
+      }
+    }
+    
+    setCheckingRecovery(false);
+  };
+  
+  // Store recovery intent before Supabase clears the hash
+  if (window.location.hash.includes('type=recovery')) {
+    sessionStorage.setItem('recovery_flow', 'true');
+  }
+  
+  detectRecoveryMode();
+}, []);
+```
+
+3. Update the render logic to show a proper loading state instead of blank:
+```typescript
+if (loading || checkingRecovery) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+```
+
+### Part 2: Fix Add Board Dialog Closing on Tab Switch
+
+**File: `src/hooks/useOrganizationMembers.ts`**
+
+Convert from `useState/useEffect` pattern to React Query:
 
 ```typescript
-// Current problematic pattern:
-const [internalOpen, setInternalOpen] = useState(false);
-useEffect(() => {
-  if (open && !internalOpen) {
-    setInternalOpen(true);
-  }
-}, [open, internalOpen]);
+import { useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import type { OrganizationMember, MemberRole } from "@/types";
 
-// The issue: when 'open' changes for ANY reason, this can trigger
+export function useOrganizationMembers(): UseOrganizationMembersReturn {
+  const { organization, user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  
+  // Use organization ID directly (stable primitive)
+  const orgId = organization?.id;
 
-// Solution: Only sync on mount/open, never let parent close affect internal state
-const [internalOpen, setInternalOpen] = useState(false);
-const hasInitialized = useRef(false);
+  const { data: members = [], isLoading, error } = useQuery({
+    queryKey: ["organization-members", orgId],
+    queryFn: async (): Promise<OrganizationMember[]> => {
+      if (!orgId) return [];
 
-useEffect(() => {
-  // Only sync when parent explicitly opens the dialog
-  if (open && !hasInitialized.current) {
-    setInternalOpen(true);
-    hasInitialized.current = true;
-  }
-  // When parent closes (after our handleClose), reset for next open
-  if (!open) {
-    hasInitialized.current = false;
-  }
-}, [open]);
+      const { data, error: fetchError } = await supabase
+        .from("organization_members")
+        .select("*")
+        .eq("organization_id", orgId)
+        .order("role", { ascending: true })
+        .order("display_name", { ascending: true });
+
+      if (fetchError) throw fetchError;
+
+      return (data || []).map((member) => ({
+        ...member,
+        role: member.role as MemberRole,
+        status: member.status as "active" | "pending" | "disabled",
+      }));
+    },
+    enabled: !!orgId,
+    // CRITICAL: Prevent refetch on window focus
+    refetchOnWindowFocus: false,
+    staleTime: 30000, // Consider data fresh for 30 seconds
+  });
+
+  // ... rest of mutation functions
+}
 ```
 
-#### Step 2: Change Dialog Configuration
+### Part 3: Stabilize AuthContext Dependencies
 
-Keep `modal={true}` (default) but ensure ALL closing paths are blocked:
+**File: `src/contexts/AuthContext.tsx`**
 
-```tsx
-<Dialog 
-  open={internalOpen} 
-  onOpenChange={(isOpen) => {
-    // ONLY allow opening from parent, never closing
-    // This callback is triggered by Radix for any close attempt
-    // We completely ignore it
-  }}
-  // Remove modal={false} - let it be modal but intercept closes
->
-```
-
-#### Step 3: Update DialogContent to Block All Events
-
-The DialogContent already has the right handlers, but ensure they're on the content level:
-
-```tsx
-<DialogContent 
-  className="max-w-lg"
-  hideCloseButton
-  onPointerDownOutside={(e) => e.preventDefault()}
-  onInteractOutside={(e) => e.preventDefault()}
-  onFocusOutside={(e) => e.preventDefault()}
-  onEscapeKeyDown={(e) => e.preventDefault()}
-  // Add this - blocks Radix's internal close on overlay click
-  onOpenAutoFocus={(e) => e.preventDefault()}
->
-```
-
-Wait - after further research, there's a simpler fix that's been missed:
-
-#### Step 4: The ACTUAL Fix - DialogOverlay Click
-
-Looking at the `dialog.tsx` component, the `DialogOverlay` doesn't have any click prevention. In Radix Dialog, clicking the overlay triggers `onOpenChange(false)`. Even though we blocked `onOpenChange`, the overlay may still be receiving and processing events.
-
-**The fix must also include the overlay!**
-
-Modify `src/components/ui/dialog.tsx` to accept an `onOverlayClick` prop or add `pointer-events: none` to overlay when needed.
-
-However, the most reliable approach is:
-
-#### Alternative: Create a Stable Dialog Wrapper
-
-Create a custom `StableDialog` component that:
-1. Renders the dialog content inside a div with `position: fixed` and proper z-index
-2. Handles its own backdrop
-3. Doesn't rely on Radix's focus/close management at all
-
-### Recommended Solution Summary
-
-1. **File: `src/components/boards/AddBoardDialog.tsx`**
-   - Add a `useRef` to track initialization state
-   - Modify the `useEffect` that syncs `internalOpen` to only respond to explicit opens
-   - Change the reset `useEffect` to only reset when `internalOpen` becomes false (not when parent `open` changes)
-
-2. **File: `src/components/ui/dialog.tsx`** (optional enhancement)
-   - Add `preventOverlayClose` prop to DialogContent that prevents overlay clicks from closing
-
-### Technical Details
-
-**Changes to AddBoardDialog.tsx:**
+The recent change added `user?.id` to the auth listener useEffect dependency array, which causes it to re-subscribe on every user change. This is problematic:
 
 ```typescript
-// Add import
-import { useRef } from "react";
+// Current (problematic):
+}, [user?.id]);
 
-// Replace the internalOpen state and effect with:
-const [internalOpen, setInternalOpen] = useState(false);
-const openRequestRef = useRef(false);
-
-// Handle parent wanting to open
-useEffect(() => {
-  if (open && !openRequestRef.current) {
-    openRequestRef.current = true;
-    setInternalOpen(true);
-  }
-}, [open]);
-
-// Handle close - reset the ref for next open
-const handleClose = () => {
-  setInternalOpen(false);
-  openRequestRef.current = false;
-  onOpenChange(false);
-};
-
-// Change the reset effect to watch internalOpen, not open
-useEffect(() => {
-  if (!internalOpen) {
-    // Reset all form state
-    setCurrentStepIndex(0);
-    // ... rest of reset logic
-  }
-}, [internalOpen]);
+// Fixed:
+}, []); // Auth listener should only run once on mount
 ```
 
-**Keep Dialog configuration with modal={true}:**
+The auth listener doesn't need `user?.id` as a dependency because it receives the new user in the callback. Adding it causes duplicate subscriptions and potential race conditions.
 
-```tsx
-<Dialog 
-  open={internalOpen} 
-  onOpenChange={() => {
-    // Completely ignore - only handleClose() can close
-  }}
->
-```
+---
 
-This ensures that:
-- The dialog only opens when explicitly requested
-- The dialog never closes from Radix's internal mechanisms (focus loss, overlay click, escape, tab switch)
-- The dialog only closes when `handleClose()` is explicitly called
-- State resets properly after intentional close
+## Files to Modify
 
+1. **`src/pages/Auth.tsx`**
+   - Add recovery flow detection with sessionStorage
+   - Show loading spinner instead of blank page
+   - Handle edge cases where hash is consumed before React mounts
+
+2. **`src/hooks/useOrganizationMembers.ts`**
+   - Convert to React Query with `refetchOnWindowFocus: false`
+   - Use stable `orgId` primitive instead of full organization object
+
+3. **`src/contexts/AuthContext.tsx`**
+   - Remove `user?.id` from auth listener dependency array
+   - Keep the `initialDataLoaded` logic for token refresh handling
+
+---
+
+## Expected Outcome
+
+After implementing these changes:
+- Password reset links will show a loading spinner briefly, then the password reset form
+- The Add Board dialog will remain open when switching browser tabs
+- Auth state changes from token refreshes won't cause unnecessary re-renders
