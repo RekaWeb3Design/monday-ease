@@ -1,478 +1,556 @@
 
 
-# Redesign Add Board Configuration Dialog: 4-Step Wizard with Client Support
+# Fix Board Configuration Wizard — Part 1: Dynamic Steps + Checkbox Selection
 
 ## Overview
-Transform the current 3-step wizard into a 4-step wizard that supports configuring board access for both team members and external clients. This includes adding a new "target audience" selection step, updating the access assignment step to conditionally show member and/or client sections, and updating the board card display to show client mappings.
+Replace the fixed 4-step wizard with a dynamic step system based on audience selection, and implement checkbox-based access selection for team members and clients.
 
 ---
 
-## Files to Modify
+## File to Modify
 
-### 1. `src/types/index.ts`
-Update the `BoardConfig.target_audience` type to include `'both'`:
-
-```typescript
-// Line 106 - Update type
-target_audience: 'team' | 'clients' | 'both' | null;
-```
+**`src/components/boards/AddBoardDialog.tsx`**
 
 ---
 
-### 2. `src/components/boards/AddBoardDialog.tsx`
+## Changes
 
-#### A. Update Step Type (line 56)
+### 1. Replace Fixed Step Type with Dynamic Steps System
+
+**Remove (line 59):**
 ```typescript
 type Step = 1 | 2 | 3 | 4;
 ```
 
-#### B. Add New State Variables (after line 78)
+**Add dynamic steps logic (after state declarations, ~line 95):**
 ```typescript
-// Step 2: Target audience
-const [targetAudience, setTargetAudience] = useState<'team' | 'clients' | 'both'>('both');
+// Dynamic steps based on audience selection
+const steps = useMemo(() => {
+  const base: string[] = ['select-board', 'audience', 'columns'];
+  if (targetAudience === 'team' || targetAudience === 'both') base.push('team-members');
+  if (targetAudience === 'clients' || targetAudience === 'both') base.push('clients');
+  return base;
+}, [targetAudience]);
 
-// Step 4: Client mappings
-const [clients, setClients] = useState<{ id: string; company_name: string; contact_name: string }[]>([]);
-const [clientMappings, setClientMappings] = useState<Record<string, string>>({});
-const [clientsLoading, setClientsLoading] = useState(false);
-```
+const currentStep = steps[currentStepIndex];
+const totalSteps = steps.length;
+const isLastStep = currentStepIndex === steps.length - 1;
 
-#### C. Add Import for RadioGroup
-```typescript
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-```
-
-#### D. Add useAuth import and get organizationId
-```typescript
-import { useAuth } from "@/hooks/useAuth";
-// Inside component:
-const { organization } = useAuth();
-```
-
-#### E. Fetch Clients When Dialog Opens (new useEffect)
-```typescript
-useEffect(() => {
-  if (open && organization?.id) {
-    setClientsLoading(true);
-    supabase
-      .from('clients')
-      .select('id, company_name, contact_name, status')
-      .eq('organization_id', organization.id)
-      .eq('status', 'active')
-      .then(({ data }) => {
-        setClients(data || []);
-        setClientsLoading(false);
-      });
+// Step label helper
+const getStepLabel = (step: string) => {
+  switch (step) {
+    case 'select-board': return 'Select a Monday.com board';
+    case 'audience': return 'Who is this board for?';
+    case 'columns': return 'Configure columns';
+    case 'team-members': return 'Select team members';
+    case 'clients': return 'Select clients';
+    default: return '';
   }
-}, [open, organization?.id]);
-```
-
-#### F. Update Reset State on Dialog Close (modify existing useEffect)
-Add resets for new state:
-```typescript
-setTargetAudience('both');
-setClients([]);
-setClientMappings({});
-```
-
-#### G. Add Client Mapping Handler
-```typescript
-const handleClientMappingChange = (clientId: string, value: string) => {
-  setClientMappings((prev) => ({
-    ...prev,
-    [clientId]: value,
-  }));
 };
 ```
 
-#### H. Update handleSubmit to Include New Fields
-Pass `target_audience` and `clientMappings` to createConfig:
+### 2. Replace Step State with Index-Based Navigation
+
+**Replace (line 75):**
 ```typescript
-const success = await createConfig({
-  monday_board_id: selectedBoard.id,
-  board_name: selectedBoard.name,
-  filter_column_id: filterColumnId === 'none' ? null : filterColumnId || null,
-  filter_column_name: filterColumn?.title || null,
-  filter_column_type: filterColumn?.type || null,
-  visible_columns: visibleColumns,
-  target_audience: targetAudience,
-  memberMappings: targetAudience === 'clients' ? [] : Object.entries(memberMappings)
-    .filter(([_, value]) => value.trim() !== "")
-    .map(([member_id, filter_value]) => ({ member_id, filter_value })),
-  clientMappings: targetAudience === 'team' ? [] : Object.entries(clientMappings)
-    .filter(([_, value]) => value.trim() !== "")
-    .map(([client_id, filter_value]) => ({ client_id, filter_value })),
-});
+const [step, setStep] = useState<Step>(1);
 ```
 
-#### I. Update Step Navigation Conditionals
+**With:**
 ```typescript
-const canProceedStep2 = !!targetAudience; // Audience selection is required
-// step < 4 for Next button, step === 4 for Save button
+const [currentStepIndex, setCurrentStepIndex] = useState(0);
 ```
 
-#### J. Update Dialog Description (line 209-216)
+### 3. Replace Member/Client Mappings with Checkbox-Based State
+
+**Replace (lines 90-91):**
 ```typescript
+const [memberMappings, setMemberMappings] = useState<Record<string, string>>({});
+```
+
+**With:**
+```typescript
+// Checkbox-based member selection
+const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
+const [memberFilterValues, setMemberFilterValues] = useState<Record<string, string>>({});
+```
+
+**Replace (line 93):**
+```typescript
+const [clientMappings, setClientMappings] = useState<Record<string, string>>({});
+```
+
+**With:**
+```typescript
+// Checkbox-based client selection
+const [selectedClients, setSelectedClients] = useState<Set<string>>(new Set());
+const [clientFilterValues, setClientFilterValues] = useState<Record<string, string>>({});
+```
+
+### 4. Add Toggle Handlers
+
+**Replace handleMemberMappingChange (lines 190-195):**
+```typescript
+const toggleMember = (memberId: string) => {
+  setSelectedMembers(prev => {
+    const next = new Set(prev);
+    if (next.has(memberId)) {
+      next.delete(memberId);
+    } else {
+      next.add(memberId);
+    }
+    return next;
+  });
+};
+
+const handleMemberFilterChange = (memberId: string, value: string) => {
+  setMemberFilterValues(prev => ({ ...prev, [memberId]: value }));
+};
+```
+
+**Replace handleClientMappingChange (lines 197-202):**
+```typescript
+const toggleClient = (clientId: string) => {
+  setSelectedClients(prev => {
+    const next = new Set(prev);
+    if (next.has(clientId)) {
+      next.delete(clientId);
+    } else {
+      next.add(clientId);
+    }
+    return next;
+  });
+};
+
+const handleClientFilterChange = (clientId: string, value: string) => {
+  setClientFilterValues(prev => ({ ...prev, [clientId]: value }));
+};
+```
+
+### 5. Update handleSubmit (lines 204-233)
+
+Build mappings only from selected members/clients:
+
+```typescript
+const handleSubmit = async () => {
+  if (!selectedBoard) return;
+  setIsSubmitting(true);
+
+  const filterColumn = selectedBoard.columns.find((c) => c.id === filterColumnId);
+
+  // Only include SELECTED members
+  const memberMappingsList = Array.from(selectedMembers).map(memberId => ({
+    member_id: memberId,
+    filter_value: memberFilterValues[memberId] || '',
+  }));
+
+  // Only include SELECTED clients
+  const clientMappingsList = Array.from(selectedClients).map(clientId => ({
+    client_id: clientId,
+    filter_value: clientFilterValues[clientId] || '',
+  }));
+
+  const success = await createConfig({
+    monday_board_id: selectedBoard.id,
+    board_name: selectedBoard.name,
+    filter_column_id: filterColumnId === 'none' ? null : filterColumnId || null,
+    filter_column_name: filterColumn?.title || null,
+    filter_column_type: filterColumn?.type || null,
+    visible_columns: visibleColumns,
+    target_audience: targetAudience,
+    memberMappings: targetAudience === 'clients' ? [] : memberMappingsList,
+    clientMappings: targetAudience === 'team' ? [] : clientMappingsList,
+  });
+
+  setIsSubmitting(false);
+  if (success) {
+    onOpenChange(false);
+    onSuccess();
+  }
+};
+```
+
+### 6. Update Monday Users Fetch Effect
+
+**Replace (lines 145-149):**
+```typescript
+useEffect(() => {
+  if (currentStep === 'team-members' && isPersonColumn && mondayUsers.length === 0) {
+    fetchUsers();
+  }
+}, [currentStep, isPersonColumn, mondayUsers.length, fetchUsers]);
+```
+
+### 7. Remove Pre-fill Effect
+
+**Remove lines 151-164** (the useEffect that pre-fills member mappings with display names) - no longer needed with checkbox approach.
+
+### 8. Update State Reset (lines 167-180)
+
+```typescript
+useEffect(() => {
+  if (!open) {
+    setCurrentStepIndex(0);
+    setSelectedBoardId("");
+    setSelectedBoard(null);
+    setTargetAudience('both');
+    setFilterColumnId("");
+    setVisibleColumns([]);
+    setSelectedMembers(new Set());
+    setMemberFilterValues({});
+    setSelectedClients(new Set());
+    setClientFilterValues({});
+    setOpenPopovers({});
+    setClients([]);
+  }
+}, [open]);
+```
+
+### 9. Update Dialog Description (lines 256-265)
+
+```tsx
 <DialogDescription>
-  Step {step} of 4:{" "}
-  {step === 1
-    ? "Select a Monday.com board"
-    : step === 2
-    ? "Who is this board for?"
-    : step === 3
-    ? "Configure columns"
-    : "Assign access"}
+  Step {currentStepIndex + 1} of {totalSteps}: {getStepLabel(currentStep)}
 </DialogDescription>
 ```
 
-#### K. Update Step Indicators (line 221)
-```typescript
-{[1, 2, 3, 4].map((s) => (
+### 10. Update Step Indicators (lines 268-282)
+
+```tsx
+<div className="flex items-center justify-center gap-2 py-2">
+  {steps.map((_, i) => (
+    <div
+      key={i}
+      className={`h-2 w-2 rounded-full transition-colors ${
+        i === currentStepIndex
+          ? "bg-primary"
+          : i < currentStepIndex
+          ? "bg-primary/50"
+          : "bg-muted"
+      }`}
+    />
+  ))}
+</div>
 ```
 
-#### L. Add New Step 2 JSX (after Step 1, before current Step 2)
+### 11. Update Step Content Conditionals
+
+**Step 1 (line 286):**
 ```tsx
-{/* Step 2: Target Audience */}
-{step === 2 && (
+{currentStep === 'select-board' && (
+```
+
+**Step 2 (line 332):**
+```tsx
+{currentStep === 'audience' && (
+```
+
+**Step 3 (line 361):**
+```tsx
+{currentStep === 'columns' && selectedBoard && (
+```
+
+### 12. New Team Members Step (replace current Step 4 team section)
+
+```tsx
+{currentStep === 'team-members' && (
   <div className="space-y-4">
-    <Label className="text-sm font-medium">Who should see this board?</Label>
-    <RadioGroup value={targetAudience} onValueChange={(v) => setTargetAudience(v as 'team' | 'clients' | 'both')}>
-      <div className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
-        <RadioGroupItem value="team" id="team" />
-        <Label htmlFor="team" className="cursor-pointer flex-1">
-          <div className="font-medium">Team Members</div>
-          <div className="text-sm text-gray-500">Your invited colleagues who have MondayEase accounts</div>
-        </Label>
-      </div>
-      <div className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
-        <RadioGroupItem value="clients" id="clients" />
-        <Label htmlFor="clients" className="cursor-pointer flex-1">
-          <div className="font-medium">External Clients</div>
-          <div className="text-sm text-gray-500">Clients who access via password-protected dashboard URLs</div>
-        </Label>
-      </div>
-      <div className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
-        <RadioGroupItem value="both" id="both" />
-        <Label htmlFor="both" className="cursor-pointer flex-1">
-          <div className="font-medium">Both</div>
-          <div className="text-sm text-gray-500">Available to both team members and external clients</div>
-        </Label>
-      </div>
-    </RadioGroup>
+    <div className="flex items-center gap-2 pb-2 border-b">
+      <Users className="h-4 w-4" />
+      <span className="font-medium">Select Team Members</span>
+    </div>
+    <p className="text-sm text-muted-foreground">
+      Check the members who should have access to this board.
+      {filterColumnId && filterColumnId !== 'none' && ' Enter a filter value to limit which rows they see.'}
+    </p>
+    
+    {mappableMembers.length === 0 ? (
+      <p className="text-sm text-muted-foreground">No team members to configure. Invite members first.</p>
+    ) : (
+      <ScrollArea className="h-[260px] rounded-md border p-3">
+        <div className="space-y-3">
+          {mappableMembers.map((member) => (
+            <div key={member.id} className="space-y-2">
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  id={`member-${member.id}`}
+                  checked={selectedMembers.has(member.id)}
+                  onCheckedChange={() => toggleMember(member.id)}
+                  className="mt-0.5"
+                />
+                <label htmlFor={`member-${member.id}`} className="flex-1 cursor-pointer">
+                  <div className="font-medium text-sm">{member.display_name || member.email}</div>
+                  {member.display_name && (
+                    <div className="text-xs text-muted-foreground">{member.email}</div>
+                  )}
+                </label>
+              </div>
+              
+              {/* Only show filter input when member is selected AND filter column exists */}
+              {selectedMembers.has(member.id) && filterColumnId && filterColumnId !== 'none' && (
+                <div className="ml-7">
+                  {isPersonColumn ? (
+                    <Popover
+                      open={openPopovers[member.id] || false}
+                      onOpenChange={(isOpen) =>
+                        setOpenPopovers((prev) => ({ ...prev, [member.id]: isOpen }))
+                      }
+                    >
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className="w-full justify-between font-normal h-9 text-sm"
+                          disabled={usersLoading}
+                        >
+                          {memberFilterValues[member.id] || "Select Monday.com user..."}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[340px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Search users..." />
+                          <CommandList>
+                            <CommandEmpty>No user found.</CommandEmpty>
+                            {mappableMembers.length > 0 && (
+                              <CommandGroup heading="Organization Members">
+                                {mappableMembers.map((orgMember) => (
+                                  <CommandItem
+                                    key={`org-${orgMember.id}`}
+                                    value={`org ${orgMember.display_name || ''} ${orgMember.email}`}
+                                    onSelect={() => {
+                                      handleMemberFilterChange(member.id, orgMember.display_name || orgMember.email);
+                                      setOpenPopovers((prev) => ({ ...prev, [member.id]: false }));
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        memberFilterValues[member.id] === orgMember.display_name
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
+                                    <Users className="mr-2 h-4 w-4 text-primary" />
+                                    <div className="flex flex-col">
+                                      <span>{orgMember.display_name || orgMember.email}</span>
+                                      <span className="text-xs text-muted-foreground">
+                                        {orgMember.email}
+                                      </span>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            )}
+                            <CommandSeparator />
+                            {mondayUsers.length > 0 && (
+                              <CommandGroup heading="Monday.com Users">
+                                {mondayUsers.map((user) => (
+                                  <CommandItem
+                                    key={`monday-${user.id}`}
+                                    value={`monday ${user.name} ${user.email || ''}`}
+                                    onSelect={() => {
+                                      handleMemberFilterChange(member.id, user.name);
+                                      setOpenPopovers((prev) => ({ ...prev, [member.id]: false }));
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        memberFilterValues[member.id] === user.name
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
+                                    <User className="mr-2 h-4 w-4 text-muted-foreground" />
+                                    <div className="flex flex-col">
+                                      <span>{user.name}</span>
+                                      {user.email && (
+                                        <span className="text-xs text-muted-foreground">
+                                          {user.email}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            )}
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  ) : (
+                    <Input
+                      placeholder="Enter filter value..."
+                      value={memberFilterValues[member.id] || ""}
+                      onChange={(e) => handleMemberFilterChange(member.id, e.target.value)}
+                      className="h-9 text-sm"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    )}
   </div>
 )}
 ```
 
-#### M. Move Current Step 2 to Step 3
-Change condition from `step === 2` to `step === 3`
-
-#### N. Redesign Step 4 (Current Step 3)
-Change condition from `step === 3` to `step === 4`. Restructure to show sections based on `targetAudience`:
+### 13. New Clients Step (replace current Step 4 clients section)
 
 ```tsx
-{/* Step 4: Assign Access */}
-{step === 4 && (
-  <div className="space-y-6">
-    {/* Team Members Section */}
-    {(targetAudience === 'team' || targetAudience === 'both') && (
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 pb-2 border-b">
-          <Users className="h-4 w-4" />
-          <span className="font-medium">Team Members</span>
-        </div>
-        {mappableMembers.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No team members to configure. Invite members first.</p>
-        ) : (
-          <ScrollArea className="h-[140px] rounded-md border p-3">
-            <div className="space-y-3">
-              {/* Existing member mapping UI */}
-              {mappableMembers.map((member) => (
-                <div key={member.id} className="space-y-1.5">
-                  {/* ... existing member mapping input ... */}
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-        )}
+{currentStep === 'clients' && (
+  <div className="space-y-4">
+    <div className="flex items-center gap-2 pb-2 border-b">
+      <Building2 className="h-4 w-4" />
+      <span className="font-medium">Select Clients</span>
+    </div>
+    <p className="text-sm text-muted-foreground">
+      Check the clients who should have access to this board.
+      {filterColumnId && filterColumnId !== 'none' 
+        ? ' Enter a filter value to limit which rows they see.' 
+        : ' They will see all rows on this board.'}
+    </p>
+    
+    {clientsLoading ? (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading clients...
       </div>
-    )}
-
-    {/* Clients Section */}
-    {(targetAudience === 'clients' || targetAudience === 'both') && (
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 pb-2 border-b">
-          <Building2 className="h-4 w-4" />
-          <span className="font-medium">External Clients</span>
-        </div>
-        {clientsLoading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading clients...
-          </div>
-        ) : clients.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No active clients. Create clients first.</p>
-        ) : (
-          <ScrollArea className="h-[140px] rounded-md border p-3">
-            <div className="space-y-3">
-              {clients.map((client) => (
-                <div key={client.id} className="space-y-1.5">
-                  <Label className="text-sm font-normal flex flex-col">
-                    <span>{client.company_name}</span>
-                    <span className="text-xs text-muted-foreground font-normal">{client.contact_name}</span>
-                  </Label>
+    ) : clients.length === 0 ? (
+      <p className="text-sm text-muted-foreground">No active clients. Create clients first.</p>
+    ) : (
+      <ScrollArea className="h-[260px] rounded-md border p-3">
+        <div className="space-y-3">
+          {clients.map((client) => (
+            <div key={client.id} className="space-y-2">
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  id={`client-${client.id}`}
+                  checked={selectedClients.has(client.id)}
+                  onCheckedChange={() => toggleClient(client.id)}
+                  className="mt-0.5"
+                />
+                <label htmlFor={`client-${client.id}`} className="flex-1 cursor-pointer">
+                  <div className="font-medium text-sm">{client.company_name}</div>
+                  <div className="text-xs text-muted-foreground">{client.contact_name}</div>
+                </label>
+              </div>
+              
+              {/* Only show filter input when client is selected AND filter column exists */}
+              {selectedClients.has(client.id) && filterColumnId && filterColumnId !== 'none' && (
+                <div className="ml-7">
                   <Input
-                    placeholder="Filter value (optional - leave empty for all rows)"
-                    value={clientMappings[client.id] || ""}
-                    onChange={(e) => handleClientMappingChange(client.id, e.target.value)}
+                    placeholder="Enter filter value (optional - leave empty for all rows)..."
+                    value={clientFilterValues[client.id] || ""}
+                    onChange={(e) => handleClientFilterChange(client.id, e.target.value)}
+                    className="h-9 text-sm"
                   />
                 </div>
-              ))}
+              )}
             </div>
-          </ScrollArea>
-        )}
-      </div>
+          ))}
+        </div>
+      </ScrollArea>
     )}
   </div>
 )}
 ```
 
-#### O. Add Building2 Icon Import
-```typescript
-import { Building2 } from "lucide-react";
-```
+### 14. Update Footer Navigation (lines 638-681)
 
-#### P. Update Footer Navigation
-Change `step < 3` to `step < 4` and `step === 3` check for save button
-
----
-
-### 3. `src/hooks/useBoardConfigs.ts`
-
-#### A. Update CreateConfigInput Interface (lines 9-17)
-```typescript
-interface CreateConfigInput {
-  monday_board_id: string;
-  board_name: string;
-  filter_column_id: string | null;
-  filter_column_name: string | null;
-  filter_column_type: string | null;
-  visible_columns: string[];
-  target_audience?: 'team' | 'clients' | 'both';
-  memberMappings: { member_id: string; filter_value: string }[];
-  clientMappings?: { client_id: string; filter_value: string }[];
-}
-```
-
-#### B. Update createConfig Function (lines 146-162)
-Add `target_audience` to the insert and handle client mappings:
-
-```typescript
-// Insert board config with target_audience
-const { data: configData, error: configError } = await supabase
-  .from("board_configs")
-  .insert({
-    organization_id: organization.id,
-    monday_board_id: input.monday_board_id,
-    board_name: input.board_name,
-    filter_column_id: input.filter_column_id,
-    filter_column_name: input.filter_column_name,
-    filter_column_type: input.filter_column_type,
-    visible_columns: input.visible_columns,
-    monday_account_id: integration?.monday_account_id || null,
-    workspace_name: integration?.workspace_name || null,
-    target_audience: input.target_audience || 'team',
-    is_active: true,
-  })
-  .select()
-  .single();
-
-// ... existing member mappings code ...
-
-// Insert client mappings
-if (input.clientMappings && input.clientMappings.length > 0) {
-  const clientMappingsToInsert = input.clientMappings
-    .map((m) => ({
-      board_config_id: configData.id,
-      client_id: m.client_id,
-      filter_value: m.filter_value.trim() || null,
-    }));
-
-  if (clientMappingsToInsert.length > 0) {
-    const { error: clientMappingError } = await supabase
-      .from("client_board_access")
-      .insert(clientMappingsToInsert);
-
-    if (clientMappingError) throw clientMappingError;
-  }
-}
-```
-
-#### C. Fetch Client Access for Configs
-Update the query function to also fetch client_board_access:
-
-```typescript
-// After fetching member access, also fetch client access
-let clientAccessData: any[] = [];
-if (activeConfigIds.length > 0) {
-  const { data: clientAccessResult, error: clientAccessError } = await supabase
-    .from("client_board_access")
-    .select("*, clients(company_name)")
-    .in("board_config_id", activeConfigIds);
-
-  if (clientAccessError) throw clientAccessError;
-  clientAccessData = clientAccessResult || [];
-}
-```
-
-#### D. Update BoardConfigWithAccess Type Usage
-The type will need to include client access - this will be handled in types update.
-
----
-
-### 4. `src/types/index.ts` - Additional Updates
-
-#### A. Update BoardConfigWithAccess (lines 143-146)
-```typescript
-export interface BoardConfigWithAccess extends BoardConfig {
-  memberAccess: MemberBoardAccess[];
-  clientAccess?: ClientBoardAccessWithClient[];
-}
-```
-
-#### B. Add New Type for Client Access with Join
-```typescript
-export interface ClientBoardAccessWithClient extends ClientBoardAccess {
-  clients?: { company_name: string };
-}
-```
-
----
-
-### 5. `src/components/boards/BoardConfigCard.tsx`
-
-#### A. Add Import for Building2 Icon
-```typescript
-import { Building2 } from "lucide-react";
-```
-
-#### B. Update Props Interface
-```typescript
-interface BoardConfigCardProps {
-  config: BoardConfigWithAccess;
-  members: OrganizationMember[];
-  onEdit: () => void;
-  onDelete: () => void;
-}
-```
-
-#### C. Add Target Audience Badge (after Active/Inactive badge, around line 45-48)
 ```tsx
-{config.target_audience && (
-  <Badge 
-    variant="outline"
-    className={cn(
-      config.target_audience === 'team' && "border-blue-500 text-blue-600",
-      config.target_audience === 'clients' && "border-green-500 text-green-600",
-      config.target_audience === 'both' && "border-purple-500 text-purple-600"
-    )}
-  >
-    {config.target_audience === 'team' ? 'Team' : 
-     config.target_audience === 'clients' ? 'Clients' : 'Both'}
-  </Badge>
-)}
-```
-
-#### D. Add Client Mappings Count (after members count, around line 103-108)
-```tsx
-{(config.target_audience === 'clients' || config.target_audience === 'both') && (
-  <div className="flex items-center gap-2 text-muted-foreground">
-    <Building2 className="h-4 w-4" />
-    <span>Clients with Access:</span>
-    <span className="font-medium text-foreground">{config.clientAccess?.length || 0}</span>
-  </div>
-)}
-```
-
-#### E. Add Client Mappings Collapsible Section (after member mappings, around line 140)
-```tsx
-{config.clientAccess && config.clientAccess.length > 0 && (
-  <Collapsible>
-    <CollapsibleTrigger asChild>
-      <Button variant="ghost" className="w-full justify-between" size="sm">
-        <span>Client Mappings</span>
-        <ChevronDown className="h-4 w-4" />
+<DialogFooter className="flex-row justify-between sm:justify-between">
+  <div>
+    {currentStepIndex > 0 && (
+      <Button
+        variant="outline"
+        onClick={() => setCurrentStepIndex(i => Math.max(0, i - 1))}
+        disabled={isSubmitting}
+      >
+        <ChevronLeft className="mr-1 h-4 w-4" />
+        Back
       </Button>
-    </CollapsibleTrigger>
-    <CollapsibleContent className="pt-2">
-      <div className="space-y-2 rounded-md border bg-muted/30 p-3">
-        {config.clientAccess.map((access) => (
-          <div
-            key={access.id}
-            className="flex items-center justify-between text-sm"
-          >
-            <span className="text-muted-foreground">
-              {access.clients?.company_name || "Unknown Client"}
-            </span>
-            <Badge variant="outline" className="font-mono text-xs">
-              {access.filter_value || "All rows"}
-            </Badge>
-          </div>
-        ))}
-      </div>
-    </CollapsibleContent>
-  </Collapsible>
-)}
+    )}
+  </div>
+  <div className="flex gap-2">
+    <Button variant="outline" onClick={() => onOpenChange(false)}>
+      Cancel
+    </Button>
+    {isLastStep ? (
+      <Button onClick={handleSubmit} disabled={!selectedBoard || isSubmitting}>
+        {isSubmitting ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Saving...
+          </>
+        ) : (
+          <>
+            <Check className="mr-2 h-4 w-4" />
+            Save
+          </>
+        )}
+      </Button>
+    ) : (
+      <Button
+        onClick={() => setCurrentStepIndex(i => i + 1)}
+        disabled={
+          (currentStep === 'select-board' && !selectedBoardId) ||
+          (currentStep === 'audience' && !targetAudience)
+        }
+      >
+        Next
+        <ChevronRight className="ml-1 h-4 w-4" />
+      </Button>
+    )}
+  </div>
+</DialogFooter>
 ```
 
 ---
 
 ## Summary of Changes
 
-| File | Changes |
-|------|---------|
-| `src/types/index.ts` | Update `target_audience` type to include `'both'`, add `ClientBoardAccessWithClient` type, update `BoardConfigWithAccess` |
-| `src/components/boards/AddBoardDialog.tsx` | Convert to 4-step wizard, add Step 2 for audience selection, update Step 4 to show members/clients conditionally |
-| `src/hooks/useBoardConfigs.ts` | Update `CreateConfigInput`, save `target_audience`, handle `clientMappings`, fetch client access |
-| `src/components/boards/BoardConfigCard.tsx` | Add target audience badge, show client access count, add client mappings collapsible |
+| Area | Before | After |
+|------|--------|-------|
+| Step count | Fixed 4 steps | Dynamic 4-5 steps based on audience |
+| Step type | `Step = 1 \| 2 \| 3 \| 4` | `string[]` array with index |
+| Member selection | Everyone listed automatically | Checkbox to opt-in |
+| Client selection | Everyone listed automatically | Checkbox to opt-in |
+| Filter inputs | Always shown | Only when member/client is checked AND filter column exists |
+| Access records | Created for everyone with non-empty value | Only created for checked members/clients |
 
 ---
 
-## Data Flow
+## Step Flow Examples
 
-```text
-┌──────────────────────────────────────────────────────────────────┐
-│                    ADD BOARD DIALOG (4 Steps)                     │
-├──────────────────────────────────────────────────────────────────┤
-│ Step 1: Select Board → Step 2: Target Audience →                 │
-│ Step 3: Configure Columns → Step 4: Assign Access                │
-└──────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                     useBoardConfigs.createConfig                  │
-├──────────────────────────────────────────────────────────────────┤
-│ 1. Insert board_configs with target_audience                     │
-│ 2. Insert member_board_access (if team/both)                     │
-│ 3. Insert client_board_access (if clients/both)                  │
-└──────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                      BoardConfigCard                              │
-├──────────────────────────────────────────────────────────────────┤
-│ • Shows target audience badge (Team/Clients/Both)                │
-│ • Shows member access count + collapsible mappings               │
-│ • Shows client access count + collapsible mappings               │
-└──────────────────────────────────────────────────────────────────┘
+**Audience = "Team":**
+```
+Select Board → Who is this for? → Configure Columns → Select Team Members
+(4 steps total)
+```
+
+**Audience = "Clients":**
+```
+Select Board → Who is this for? → Configure Columns → Select Clients
+(4 steps total)
+```
+
+**Audience = "Both":**
+```
+Select Board → Who is this for? → Configure Columns → Select Team Members → Select Clients
+(5 steps total)
 ```
 
 ---
 
 ## Technical Notes
 
-- The `target_audience` field already exists in the database with values `'team'`, `'clients'`, `'both'` - needs to ensure the column can accept `'both'`
-- Client mappings are optional - if no filter_value is provided, client sees all rows
-- Uses existing `client_board_access` table for storing client-board relationships
-- The RadioGroup component is already available from shadcn/ui
-- Step 4 height is reduced (h-[140px] per section) to fit both sections when `targetAudience === 'both'`
+- The `useBoardConfigs.createConfig` function already handles the `memberMappings` and `clientMappings` arrays correctly - no changes needed there
+- The `Set<string>` state for selections provides O(1) lookup and toggle performance
+- Filter value inputs only appear when the checkbox is checked AND a filter column is configured
+- If no filter column is selected, checked members/clients get access to all rows
+- The person column Popover/Combobox is preserved for person-type filter columns
 
