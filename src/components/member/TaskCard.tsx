@@ -28,6 +28,14 @@ function isStatusColumn(col: MondayColumnValue): boolean {
   return col.type === "status" || col.type === "color";
 }
 
+// Extract color from column value's label_style
+function getColumnColor(col: MondayColumnValue): string | null {
+  if (typeof col.value === "object" && col.value?.label_style?.color) {
+    return col.value.label_style.color;
+  }
+  return null;
+}
+
 // Format column value for display
 function formatColumnValue(col: MondayColumnValue): string {
   if (col.text) return col.text;
@@ -60,11 +68,21 @@ export function TaskCard({ task }: TaskCardProps) {
           <Badge variant="outline" className="text-xs">
             {task.board_name}
           </Badge>
-          {statusText && (
-            <Badge className={`text-xs ${getStatusColor(statusText)}`}>
-              {statusText}
-            </Badge>
-          )}
+          {statusCol && statusText && (() => {
+            const labelColor = getColumnColor(statusCol);
+            return (
+              <Badge 
+                className={`text-xs ${!labelColor ? getStatusColor(statusText) : ''}`}
+                style={labelColor ? {
+                  backgroundColor: labelColor,
+                  color: 'white',
+                  border: 'none',
+                } : undefined}
+              >
+                {statusText}
+              </Badge>
+            );
+          })()}
         </div>
       </CardHeader>
       
