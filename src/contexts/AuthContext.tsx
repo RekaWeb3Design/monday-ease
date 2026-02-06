@@ -179,34 +179,53 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return typedOrg;
   }, [user, profile]);
 
+  // Track if initial data load has completed
+  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
+
   // Effect 1: Listen for auth state changes — synchronous state updates only.
   // Avoids calling async Supabase methods inside the callback (deadlock risk).
   // The INITIAL_SESSION event fires on mount with the existing session if any.
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => {
+      (event, newSession) => {
+        // Only update session/user state - don't trigger loading for token refreshes
+        const prevUserId = user?.id;
+        const newUserId = newSession?.user?.id;
+        
         setSession(newSession);
         setUser(newSession?.user ?? null);
 
+        // Only clear profile/org data on actual sign out (user changed or removed)
         if (!newSession?.user) {
           setProfile(null);
           setOrganization(null);
           setMemberRole(null);
+          setInitialDataLoaded(false);
+        } else if (prevUserId !== newUserId) {
+          // User changed - reset for new data load
+          setInitialDataLoaded(false);
         }
+        // For TOKEN_REFRESHED events, don't reset anything - keep existing data
 
         setAuthInitialized(true);
       }
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [user?.id]);
 
   // Effect 2: Once auth is initialized, load profile + org data for the user.
-  // Also activates invited members if they have invitation metadata.
+  // Only runs on initial load or when user actually changes (not on token refresh).
   useEffect(() => {
     if (!authInitialized) return;
 
     if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    // Skip re-fetching if we already have data for this user (token refresh scenario)
+    if (initialDataLoaded && profile && organization) {
       setLoading(false);
       return;
     }
@@ -223,12 +242,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         await fetchOrganization(user.id);
         
         // If user has invitation metadata, activate their membership
-        // This happens when an invited user confirms their account
         if (!cancelled) {
           const invitedOrgId = user.user_metadata?.invited_to_organization;
           if (invitedOrgId) {
             await activateInvitedMember(user);
           }
+        }
+        
+        if (!cancelled) {
+          setInitialDataLoaded(true);
         }
       } catch (error) {
         console.error("Error loading user data:", error);
@@ -242,7 +264,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => {
       cancelled = true;
     };
-  }, [authInitialized, user, fetchProfile, fetchOrganization, activateInvitedMember]);
+  }, [authInitialized, user?.id, initialDataLoaded, profile, organization, fetchProfile, fetchOrganization, activateInvitedMember]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
