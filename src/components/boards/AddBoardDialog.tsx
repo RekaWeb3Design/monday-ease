@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Loader2, ChevronLeft, ChevronRight, Check, Info, ChevronsUpDown, User, Users, Building2, X } from "lucide-react";
 import {
   Tooltip,
@@ -226,25 +226,23 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
     fetchValues();
   }, [selectedBoard?.id, filterColumnId]);
 
-  // Reset state when dialog closes
-  useEffect(() => {
-    if (!open) {
-      setCurrentStepIndex(0);
-      setSelectedBoardId("");
-      setSelectedBoard(null);
-      setTargetAudience('both');
-      setFilterColumnId("");
-      setVisibleColumns([]);
-      setSelectedMembers(new Set());
-      setMemberFilterValues({});
-      setSelectedClients(new Set());
-      setClientFilterValues({});
-      setOpenPopovers({});
-      setClients([]);
-      setColumnValues([]);
-      setColumnValuesLoading(false);
-    }
-  }, [open]);
+  // Reset state when dialog closes (watch internalOpen, not parent open)
+  const resetFormState = () => {
+    setCurrentStepIndex(0);
+    setSelectedBoardId("");
+    setSelectedBoard(null);
+    setTargetAudience('both');
+    setFilterColumnId("");
+    setVisibleColumns([]);
+    setSelectedMembers(new Set());
+    setMemberFilterValues({});
+    setSelectedClients(new Set());
+    setClientFilterValues({});
+    setOpenPopovers({});
+    setClients([]);
+    setColumnValues([]);
+    setColumnValuesLoading(false);
+  };
 
   const handleVisibleColumnToggle = (columnId: string) => {
     setVisibleColumns((prev) =>
@@ -345,17 +343,25 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
 
   // Use internal state that we fully control to prevent any external closing
   const [internalOpen, setInternalOpen] = useState(false);
+  const openRequestRef = useRef(false);
   
-  // Sync with parent when parent wants to open (but not close)
+  // Sync with parent ONLY when parent explicitly requests open
   useEffect(() => {
-    if (open && !internalOpen) {
+    if (open && !openRequestRef.current) {
+      openRequestRef.current = true;
       setInternalOpen(true);
     }
-  }, [open, internalOpen]);
+    // Reset the ref when parent closes (after our handleClose was called)
+    if (!open) {
+      openRequestRef.current = false;
+    }
+  }, [open]);
   
-  // Explicit close handler - only way to close the dialog
+  // Explicit close handler - the ONLY way to close the dialog
   const handleClose = () => {
     setInternalOpen(false);
+    openRequestRef.current = false;
+    resetFormState();
     onOpenChange(false);
   };
 
@@ -366,7 +372,6 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
         // Completely ignore all automatic close attempts
         // Dialog can only be closed via handleClose()
       }}
-      modal={false}
     >
       <DialogContent 
         className="max-w-lg"
@@ -375,6 +380,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
         onInteractOutside={(e) => e.preventDefault()}
         onFocusOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
+        onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <DialogHeader className="relative pr-8">
           <Button
