@@ -266,7 +266,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => {
       cancelled = true;
     };
-  }, [authInitialized, user?.id, initialDataLoaded, profile, organization, fetchProfile, fetchOrganization, activateInvitedMember]);
+  // NOTE: profile and organization are intentionally excluded from dependencies
+  // to prevent infinite loops when fetch fails. This effect SETS them, not watches them.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authInitialized, user?.id, initialDataLoaded, fetchProfile, fetchOrganization, activateInvitedMember]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
