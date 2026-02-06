@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -17,54 +18,41 @@ interface UseOrganizationMembersReturn {
 export function useOrganizationMembers(): UseOrganizationMembersReturn {
   const { organization, user } = useAuth();
   const { toast } = useToast();
-  const [members, setMembers] = useState<OrganizationMember[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const queryClient = useQueryClient();
+  
+  // Use organization ID directly (stable primitive) to prevent re-renders
+  const orgId = organization?.id;
 
-  const fetchMembers = useCallback(async () => {
-    if (!organization) {
-      setMembers([]);
-      setIsLoading(false);
-      return;
-    }
+  const { data: members = [], isLoading, error } = useQuery({
+    queryKey: ["organization-members", orgId],
+    queryFn: async (): Promise<OrganizationMember[]> => {
+      if (!orgId) return [];
 
-    setIsLoading(true);
-    setError(null);
-
-    try {
       const { data, error: fetchError } = await supabase
         .from("organization_members")
         .select("*")
-        .eq("organization_id", organization.id)
+        .eq("organization_id", orgId)
         .order("role", { ascending: true })
         .order("display_name", { ascending: true });
 
       if (fetchError) throw fetchError;
 
       // Cast the data to match our OrganizationMember type
-      const typedMembers: OrganizationMember[] = (data || []).map((member) => ({
+      return (data || []).map((member) => ({
         ...member,
         role: member.role as MemberRole,
         status: member.status as "active" | "pending" | "disabled",
       }));
+    },
+    enabled: !!orgId,
+    // CRITICAL: Prevent refetch on window focus - this prevents dialog closing on tab switch
+    refetchOnWindowFocus: false,
+    staleTime: 30000, // Consider data fresh for 30 seconds
+  });
 
-      setMembers(typedMembers);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error("Failed to fetch members");
-      setError(error);
-      toast({
-        title: "Error",
-        description: "Failed to load team members. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organization, toast]);
-
-  useEffect(() => {
-    fetchMembers();
-  }, [fetchMembers]);
+  const refetch = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["organization-members", orgId] });
+  }, [queryClient, orgId]);
 
   const inviteMember = useCallback(
     async (email: string, displayName: string) => {
@@ -104,9 +92,9 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
         description: `${displayName} has been invited to join your organization.`,
       });
 
-      await fetchMembers();
+      await refetch();
     },
-    [organization, user, toast, fetchMembers]
+    [organization, user, toast, refetch]
   );
 
   const updateMember = useCallback(
@@ -138,9 +126,9 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
         description: "Team member has been updated successfully.",
       });
 
-      await fetchMembers();
+      await refetch();
     },
-    [toast, fetchMembers]
+    [toast, refetch]
   );
 
   const removeMember = useCallback(
@@ -164,18 +152,18 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
         description: "Team member has been removed from the organization.",
       });
 
-      await fetchMembers();
+      await refetch();
     },
-    [toast, fetchMembers]
+    [toast, refetch]
   );
 
   return {
     members,
     isLoading,
-    error,
+    error: error as Error | null,
     inviteMember,
     updateMember,
     removeMember,
-    refetch: fetchMembers,
+    refetch,
   };
 }
