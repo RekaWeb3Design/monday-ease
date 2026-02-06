@@ -27,6 +27,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 
+// CRITICAL: Capture recovery intent IMMEDIATELY before Supabase clears the hash
+// This code runs synchronously when the module is first imported
+const initialHash = typeof window !== 'undefined' ? window.location.hash : '';
+if (initialHash.includes('type=recovery')) {
+  sessionStorage.setItem('recovery_flow', 'true');
+}
+
 interface Organization {
   id: string;
   name: string;
@@ -80,33 +87,35 @@ export default function Auth() {
   // Recovery flow detection state
   const [checkingRecovery, setCheckingRecovery] = useState(true);
 
-  // Detect if user arrived via password recovery link
-  // This runs BEFORE Supabase clears the hash, and also checks sessionStorage as fallback
+  // Listen for Supabase PASSWORD_RECOVERY event (backup detection method)
   useEffect(() => {
-    const detectRecoveryMode = async () => {
-      const hash = window.location.hash;
-      
-      // Check for recovery type in hash (before Supabase processes it)
-      if (hash.includes('type=recovery')) {
-        sessionStorage.setItem('recovery_flow', 'true');
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        console.log('PASSWORD_RECOVERY event detected');
         setShowPasswordSetup(true);
         setCheckingRecovery(false);
-        return;
       }
-      
-      // Also check sessionStorage for recovery intent (after Supabase cleared hash)
+    });
+    
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Check sessionStorage for recovery intent (set by module-level code before Supabase cleared hash)
+  useEffect(() => {
+    const detectRecoveryMode = () => {
       const savedRecoveryIntent = sessionStorage.getItem('recovery_flow');
       if (savedRecoveryIntent) {
+        console.log('Recovery flow detected from sessionStorage');
         setShowPasswordSetup(true);
         sessionStorage.removeItem('recovery_flow');
-        setCheckingRecovery(false);
-        return;
       }
-      
       setCheckingRecovery(false);
     };
     
-    detectRecoveryMode();
+    // Small delay to ensure Supabase has processed the token
+    // but the PASSWORD_RECOVERY event listener above is the primary method
+    const timer = setTimeout(detectRecoveryMode, 100);
+    return () => clearTimeout(timer);
   }, []);
 
   // Fetch organization name for invited users on password setup
@@ -134,12 +143,12 @@ export default function Auth() {
     fetchInvitedOrgName();
   }, [showPasswordSetup, user]);
 
-  // Redirect authenticated users to dashboard (but not if setting up password)
+  // Redirect authenticated users to dashboard (but not if setting up password or checking recovery)
   useEffect(() => {
-    if (!loading && user && !showPasswordSetup) {
+    if (!loading && !checkingRecovery && user && !showPasswordSetup) {
       navigate("/", { replace: true });
     }
-  }, [user, loading, navigate, showPasswordSetup]);
+  }, [user, loading, navigate, showPasswordSetup, checkingRecovery]);
 
   // Fetch organizations when member type is selected
   useEffect(() => {
