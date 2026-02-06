@@ -1,9 +1,9 @@
 
-# Member Dashboard Grid/List View Toggle
+# Member Dashboard Sorting & Filtering
 
 ## Összefoglaló
 
-A Member Dashboard-hoz hozzáadunk egy nézet váltó gombot (Grid/List toggle), amely lehetővé teszi, hogy a felhasználó válasszon a jelenlegi kártya nézet és egy új táblázatos lista nézet között.
+Keresés és rendezés funkciók hozzáadása a Member Dashboard-hoz. A tagok kereshetnek a taskok között, és rendezhetik őket oszlopok szerint (list view-ban kattintható fejlécekkel, grid view-ban dropdown-nal).
 
 ## Felhasználói Élmény
 
@@ -12,259 +12,227 @@ A Member Dashboard-hoz hozzáadunk egy nézet váltó gombot (Grid/List toggle),
 │ My Tasks                                      [▦|☰]  [🔄 Refresh]          │
 │ Welcome back, John! Here are your assigned tasks.                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
 │  [ All Tasks (24) ]  [ Tasks (12) ]  [ Deliverables (8) ]                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Stats Cards Row                                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐       │
-│  │ Stats cards  │ │ Stats cards  │ │ Stats cards  │ │ Stats cards  │       │
-│  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘       │
+│  [🔍 Search tasks...              ✕]  Showing 5 of 12   [Sort: ▼] [↑↓]     │
+│                                                          ↑ only grid view   │
 │                                                                              │
-│  ═══════════════════════════════════════════════════════════════════════    │
-│  Grid View:                        OR      List View:                        │
-│  ┌─────────┐ ┌─────────┐                  | NAME           | BOARD  | ...  │
-│  │ Card 1  │ │ Card 2  │                  | Task 1         | Tasks  | ...  │
-│  └─────────┘ └─────────┘                  | Task 2         | Tasks  | ...  │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ NAME ↑        │ BOARD   │ PRIORITY  │ STATUS    │ EST. HOURS       │   │
+│  │───────────────┼─────────┼───────────┼───────────┼──────────────────│   │
+│  │ Task name...  │ Tasks   │ 🟠 High   │ 🔵 Done   │ 8                │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Technikai Terv
 
-### 1. Új Komponens: `src/components/member/TaskListView.tsx`
+### Fájl 1: `src/pages/MemberDashboard.tsx`
 
-Táblázatos nézet a task-okhoz, hasonlóan a Client Dashboard-hoz.
+**1. Új importok hozzáadása:**
 
-**Struktúra:**
-- HTML táblázat Tailwind class-okkal (egyszerű, könnyűsúlyú)
-- Sticky fejléc sor
-- Alternáló sor hover állapotok
-- Horizontális scroll mobilon
-
-**Oszlopok:**
-1. **Name** - mindig első, bal igazítás, truncate
-2. **Board** - csak ha `showBoardName={true}` (All Tasks tab-on)
-3. **Dinamikus oszlopok** a `column_values`-ból:
-   - `status`/`color` → színes badge (`label_style.color`)
-   - `numbers` → jobb igazítás
-   - `text` → truncate (~40 karakter)
-   - egyéb → `text` mező vagy "—"
-
-**Props:**
 ```typescript
-interface TaskListViewProps {
-  tasks: MondayTask[];
-  showBoardName: boolean;
-}
+import { Search, X, ChevronUp, ChevronDown } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 ```
 
-### 2. Módosítás: `src/pages/MemberDashboard.tsx`
+**2. Új state változók:**
 
-**Új importok:**
 ```typescript
-import { LayoutGrid, List } from "lucide-react";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { TaskListView } from "@/components/member/TaskListView";
+const [searchQuery, setSearchQuery] = useState("");
+const [sortColumn, setSortColumn] = useState<string | null>(null);
+const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
 ```
 
-**Új state:**
-```typescript
-const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-```
-
-**Header layout frissítés:**
-- Toggle group a Refresh gomb mellett (bal oldalra)
-- LayoutGrid ikon → grid nézet
-- List ikon → list nézet
-- Aktív állapot: filled/highlighted
-
-**Feltételes renderelés:**
-```typescript
-{viewMode === "grid" ? (
-  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-    {filteredTasks.map((task) => (
-      <TaskCard key={task.id} task={task} showBoardName={activeTab === "all"} />
-    ))}
-  </div>
-) : (
-  <TaskListView tasks={filteredTasks} showBoardName={activeTab === "all"} />
-)}
-```
-
----
-
-## Részletes Fájl Változások
-
-### Fájl 1: `src/components/member/TaskListView.tsx` (ÚJ)
+**3. AllColumns kinyerése (useMemo) — közös a sort dropdown és TaskListView számára:**
 
 ```typescript
-import { Badge } from "@/components/ui/badge";
-import type { MondayTask, MondayColumnValue } from "@/types";
-
-interface TaskListViewProps {
-  tasks: MondayTask[];
-  showBoardName: boolean;
-}
-
-// Check if column is a status type
-function isStatusColumn(col: MondayColumnValue): boolean {
-  return col.type === "status" || col.type === "color";
-}
-
-// Extract color from column value's label_style
-function getColumnColor(col: MondayColumnValue): string | null {
-  if (typeof col.value === "object" && col.value?.label_style?.color) {
-    return col.value.label_style.color;
-  }
-  return null;
-}
-
-export function TaskListView({ tasks, showBoardName }: TaskListViewProps) {
-  if (tasks.length === 0) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        No tasks to display
-      </div>
-    );
-  }
-
-  // Get all unique columns from all tasks
-  const allColumns = tasks.reduce((acc, task) => {
-    task.column_values.forEach((col) => {
-      if (!acc.find((c) => c.id === col.id)) {
-        acc.push({ id: col.id, title: col.title, type: col.type });
+const allColumns = useMemo(() => {
+  const cols: { id: string; title: string; type: string }[] = [];
+  filteredTasks.forEach(task => {
+    task.column_values.forEach(col => {
+      if (!cols.find(c => c.id === col.id)) {
+        cols.push({ id: col.id, title: col.title, type: col.type });
       }
     });
-    return acc;
-  }, [] as { id: string; title: string; type: string }[]);
+  });
+  return cols;
+}, [filteredTasks]);
+```
 
-  return (
-    <div className="overflow-x-auto rounded-lg border">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-gray-50 border-b">
-            <th className="text-left font-semibold text-gray-600 uppercase text-xs py-3 px-4">
-              Name
-            </th>
-            {showBoardName && (
-              <th className="text-left font-semibold text-gray-600 uppercase text-xs py-3 px-4">
-                Board
-              </th>
-            )}
-            {allColumns.map((col) => (
-              <th
-                key={col.id}
-                className={`font-semibold text-gray-600 uppercase text-xs py-3 px-4
-                  ${col.type === "numbers" ? "text-right" : "text-left"}`}
-              >
-                {col.title}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {tasks.map((task, index) => (
-            <tr
-              key={task.id}
-              className={`border-b hover:bg-gray-50 transition-colors
-                ${index % 2 === 1 ? "bg-gray-50/50" : "bg-white"}`}
-            >
-              {/* Task name */}
-              <td className="py-3 px-4 font-medium text-gray-900 max-w-[300px] truncate">
-                {task.name}
-              </td>
+**4. Keresés szűrő (useMemo):**
 
-              {/* Board name badge */}
-              {showBoardName && (
-                <td className="py-3 px-4">
-                  <Badge variant="outline" className="text-xs">
-                    {task.board_name}
-                  </Badge>
-                </td>
-              )}
+```typescript
+const searchedTasks = useMemo(() => {
+  if (!searchQuery.trim()) return filteredTasks;
+  const query = searchQuery.toLowerCase().trim();
+  return filteredTasks.filter(task => {
+    if (task.name.toLowerCase().includes(query)) return true;
+    return task.column_values.some(cv => 
+      cv.text && cv.text.toLowerCase().includes(query)
+    );
+  });
+}, [filteredTasks, searchQuery]);
+```
 
-              {/* Dynamic columns */}
-              {allColumns.map((colDef) => {
-                const col = task.column_values.find((c) => c.id === colDef.id);
-                const labelColor = col ? getColumnColor(col) : null;
+**5. Rendezés logika (useMemo):**
 
-                return (
-                  <td
-                    key={colDef.id}
-                    className={`py-3 px-4 ${colDef.type === "numbers" ? "text-right" : ""}`}
-                  >
-                    {isStatusColumn(colDef) && col?.text ? (
-                      <Badge
-                        className="text-xs"
-                        style={
-                          labelColor
-                            ? { backgroundColor: labelColor, color: "white", border: "none" }
-                            : undefined
-                        }
-                      >
-                        {col.text}
-                      </Badge>
-                    ) : (
-                      <span className={`${col?.text ? "text-gray-700" : "text-gray-300"} text-sm max-w-[200px] truncate block`}>
-                        {col?.text || "—"}
-                      </span>
-                    )}
-                  </td>
-                );
-              })}
-            </tr>
+```typescript
+const sortedTasks = useMemo(() => {
+  if (!sortColumn) return searchedTasks;
+  
+  return [...searchedTasks].sort((a, b) => {
+    let aVal: string | number = "";
+    let bVal: string | number = "";
+    
+    if (sortColumn === "name") {
+      aVal = a.name.toLowerCase();
+      bVal = b.name.toLowerCase();
+    } else if (sortColumn === "board") {
+      aVal = a.board_name.toLowerCase();
+      bVal = b.board_name.toLowerCase();
+    } else {
+      const aCol = a.column_values.find(cv => cv.id === sortColumn);
+      const bCol = b.column_values.find(cv => cv.id === sortColumn);
+      
+      if (aCol?.type === "numbers" || aCol?.type === "numeric") {
+        aVal = parseFloat(aCol?.text || "0") || 0;
+        bVal = parseFloat(bCol?.text || "0") || 0;
+      } else {
+        aVal = (aCol?.text || "").toLowerCase();
+        bVal = (bCol?.text || "").toLowerCase();
+      }
+    }
+    
+    if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+    if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+    return 0;
+  });
+}, [searchedTasks, sortColumn, sortDirection]);
+```
+
+**6. Tab váltás kezelő (reset search & sort):**
+
+```typescript
+const handleTabChange = (tab: string) => {
+  setActiveTab(tab);
+  setSearchQuery("");
+  setSortColumn(null);
+  setSortDirection("asc");
+};
+```
+
+**7. Sort toggle függvény (list view header kattintáshoz):**
+
+```typescript
+const handleSort = (columnId: string) => {
+  if (sortColumn === columnId) {
+    if (sortDirection === "asc") {
+      setSortDirection("desc");
+    } else {
+      setSortColumn(null);
+      setSortDirection("asc");
+    }
+  } else {
+    setSortColumn(columnId);
+    setSortDirection("asc");
+  }
+};
+```
+
+**8. Tabs onValueChange frissítése:**
+
+```typescript
+<Tabs value={activeTab} onValueChange={handleTabChange}>
+```
+
+**9. Új Toolbar komponens (stats után, task view előtt):**
+
+```tsx
+{/* Search & Sort Toolbar */}
+<div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+  {/* Search Input */}
+  <div className="relative flex-1 max-w-md">
+    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+    <Input
+      placeholder="Search tasks..."
+      value={searchQuery}
+      onChange={(e) => setSearchQuery(e.target.value)}
+      className="pl-9 pr-9"
+    />
+    {searchQuery && (
+      <button
+        onClick={() => setSearchQuery("")}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    )}
+  </div>
+  
+  {/* Result count (only when searching) */}
+  {searchQuery && (
+    <span className="text-sm text-muted-foreground whitespace-nowrap">
+      Showing {sortedTasks.length} of {filteredTasks.length} tasks
+    </span>
+  )}
+  
+  {/* Sort controls (only in grid view) */}
+  {viewMode === "grid" && (
+    <div className="flex items-center gap-1">
+      <Select 
+        value={sortColumn || "none"} 
+        onValueChange={(val) => {
+          if (val === "none") {
+            setSortColumn(null);
+          } else {
+            setSortColumn(val);
+            if (!sortColumn) setSortDirection("asc");
+          }
+        }}
+      >
+        <SelectTrigger className="w-[160px]">
+          <SelectValue placeholder="Sort by..." />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">Default order</SelectItem>
+          <SelectItem value="name">Name</SelectItem>
+          {allColumns.map(col => (
+            <SelectItem key={col.id} value={col.id}>{col.title}</SelectItem>
           ))}
-        </tbody>
-      </table>
+        </SelectContent>
+      </Select>
+      
+      {sortColumn && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setSortDirection(d => d === "asc" ? "desc" : "asc")}
+          className="h-9 w-9"
+        >
+          {sortDirection === "asc" ? 
+            <ChevronUp className="h-4 w-4" /> : 
+            <ChevronDown className="h-4 w-4" />
+          }
+        </Button>
+      )}
     </div>
-  );
-}
-```
-
-### Fájl 2: `src/pages/MemberDashboard.tsx`
-
-**Változás 1 - Új importok (8. sor):**
-```typescript
-import { Loader2, RefreshCw, ClipboardList, LayoutList, LayoutGrid, List } from "lucide-react";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { TaskListView } from "@/components/member/TaskListView";
-```
-
-**Változás 2 - Új state (13. sor után):**
-```typescript
-const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-```
-
-**Változás 3 - Header layout (109-120. sor):**
-```typescript
-<div className="flex items-center justify-between">
-  <div>
-    <h1 className="text-2xl font-bold tracking-tight">My Tasks</h1>
-    <p className="text-muted-foreground">
-      Welcome back, {displayName}! Here are your assigned tasks.
-    </p>
-  </div>
-  <div className="flex items-center gap-2">
-    <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as "grid" | "list")}>
-      <ToggleGroupItem value="grid" aria-label="Grid view" size="sm">
-        <LayoutGrid className="h-4 w-4" />
-      </ToggleGroupItem>
-      <ToggleGroupItem value="list" aria-label="List view" size="sm">
-        <List className="h-4 w-4" />
-      </ToggleGroupItem>
-    </ToggleGroup>
-    <Button onClick={refetch} variant="outline" size="sm">
-      <RefreshCw className="mr-2 h-4 w-4" />
-      Refresh
-    </Button>
-  </div>
+  )}
 </div>
 ```
 
-**Változás 4 - Task view feltételes renderelés (149-158. sor):**
+**10. TaskStats és task view frissítése — sortedTasks használata:**
+
 ```typescript
-{/* Task view - uses filtered tasks */}
+<TaskStats tasks={sortedTasks} />
+
 {viewMode === "grid" ? (
   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-    {filteredTasks.map((task) => (
+    {sortedTasks.map((task) => (
       <TaskCard 
         key={task.id} 
         task={task} 
@@ -274,27 +242,140 @@ const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   </div>
 ) : (
   <TaskListView 
-    tasks={filteredTasks} 
-    showBoardName={activeTab === "all"} 
+    tasks={sortedTasks} 
+    showBoardName={activeTab === "all"}
+    allColumns={allColumns}
+    sortColumn={sortColumn}
+    sortDirection={sortDirection}
+    onSort={handleSort}
   />
 )}
 ```
 
 ---
 
+### Fájl 2: `src/components/member/TaskListView.tsx`
+
+**1. Új importok:**
+
+```typescript
+import { ChevronUp, ChevronDown } from "lucide-react";
+```
+
+**2. Props interface bővítése:**
+
+```typescript
+interface TaskListViewProps {
+  tasks: MondayTask[];
+  showBoardName: boolean;
+  allColumns: { id: string; title: string; type: string }[];
+  sortColumn: string | null;
+  sortDirection: "asc" | "desc";
+  onSort: (columnId: string) => void;
+}
+```
+
+**3. AllColumns belső számítás eltávolítása — props-ból jön:**
+
+```typescript
+export function TaskListView({ 
+  tasks, 
+  showBoardName, 
+  allColumns,
+  sortColumn,
+  sortDirection,
+  onSort 
+}: TaskListViewProps) {
+  // Remove the internal allColumns calculation - now passed as prop
+```
+
+**4. Sortable header helper komponens:**
+
+```tsx
+const SortableHeader = ({ 
+  columnId, 
+  children, 
+  className = "" 
+}: { 
+  columnId: string; 
+  children: React.ReactNode; 
+  className?: string;
+}) => (
+  <th
+    className={`font-semibold text-muted-foreground uppercase text-xs py-3 px-4 cursor-pointer hover:bg-muted/70 select-none transition-colors ${className}`}
+    onClick={() => onSort(columnId)}
+  >
+    <div className="flex items-center gap-1">
+      {children}
+      {sortColumn === columnId && (
+        sortDirection === "asc" 
+          ? <ChevronUp className="h-3 w-3" /> 
+          : <ChevronDown className="h-3 w-3" />
+      )}
+    </div>
+  </th>
+);
+```
+
+**5. Header row frissítése sortable header-ekkel:**
+
+```tsx
+<thead>
+  <tr className="bg-muted/50 border-b border-border">
+    <SortableHeader columnId="name" className="text-left">
+      Name
+    </SortableHeader>
+    {showBoardName && (
+      <SortableHeader columnId="board" className="text-left">
+        Board
+      </SortableHeader>
+    )}
+    {allColumns.map((col) => (
+      <SortableHeader 
+        key={col.id} 
+        columnId={col.id}
+        className={col.type === "numbers" ? "text-right" : "text-left"}
+      >
+        {col.title}
+      </SortableHeader>
+    ))}
+  </tr>
+</thead>
+```
+
+---
+
+## Adatfolyam
+
+```text
+tasks (API)
+    ↓
+filteredTasks (tab filter)
+    ↓
+searchedTasks (search filter)
+    ↓
+sortedTasks (sort)
+    ↓
+→ TaskStats (count display)
+→ TaskCard grid / TaskListView table
+```
+
 ## Viselkedés Összefoglaló
 
-| Állapot | Grid nézet | List nézet |
-|---------|-----------|------------|
-| All Tasks tab | Kártya + board badge | Táblázat + board oszlop |
-| Specifikus board tab | Kártya, nincs board badge | Táblázat, nincs board oszlop |
-| 0 task | Üres állapot | "No tasks to display" |
-| Mobil | 1 oszlopos grid | Horizontális scroll |
+| Művelet | Hatás |
+|---------|-------|
+| Keresés gépelés | Azonnal szűr task name + column values alapján |
+| "X" gomb | Törli a keresést, összes task megjelenik |
+| Tab váltás | Reseteli search + sort, új board taskok |
+| List view header kattintás | Ciklikus: asc → desc → nincs sort |
+| Grid view sort dropdown | Kiválasztja a rendezési oszlopot |
+| Grid view ↑↓ gomb | Irány váltás (asc/desc) |
+| View mode váltás | Megtartja search + sort állapotot |
 
 ## Nem Változik
 
-- `TaskCard.tsx` - változatlan marad
-- `TaskStats.tsx` - változatlan marad
-- Edge Functions - nincs módosítás
-- Tab rendszer - változatlanul működik mindkét nézetben
-- Színes státusz badge-ek - mindkét nézetben működnek
+- `TaskCard.tsx` — változatlan
+- `TaskStats.tsx` — változatlan (már props-ból kapja a tasks-ot)
+- Edge Functions — nincs módosítás
+- Típusok — nincs módosítás
+- Színes badge-ek — változatlanul működnek
