@@ -8,6 +8,8 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   Loader2,
   Filter,
   Table as TableIcon,
@@ -348,6 +350,53 @@ export default function CustomViewPage() {
               <Grid3X3 className="h-4 w-4" />
             </ToggleGroupItem>
           </ToggleGroup>
+
+          {/* Sort Dropdown - only in Card/Gallery views */}
+          {(settings.view_mode === 'cards' || settings.view_mode === 'gallery') && (
+            <div className="flex items-center gap-1">
+              <Select
+                value={sortColumn || "none"}
+                onValueChange={(val) => {
+                  if (val === "none") {
+                    setSortColumn(null);
+                  } else {
+                    setSortColumn(val);
+                  }
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[160px] h-9">
+                  <SelectValue placeholder="Sort by..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Default order</SelectItem>
+                  {settings.show_item_name && (
+                    <SelectItem value="name">Item Name</SelectItem>
+                  )}
+                  {columns.map(col => (
+                    <SelectItem key={col.id} value={col.id}>{col.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              {sortColumn && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={() => {
+                    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                    setPage(1);
+                  }}
+                >
+                  {sortOrder === 'asc' ? 
+                    <ChevronUp className="h-4 w-4" /> : 
+                    <ChevronDown className="h-4 w-4" />
+                  }
+                </Button>
+              )}
+            </div>
+          )}
 
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4 mr-1" />
