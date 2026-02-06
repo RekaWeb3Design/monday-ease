@@ -355,6 +355,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
         // Only allow opening, not auto-closing (prevents tab switch closing)
         if (isOpen) onOpenChange(isOpen);
       }}
+      modal={false}
     >
       <DialogContent 
         className="max-w-lg"
