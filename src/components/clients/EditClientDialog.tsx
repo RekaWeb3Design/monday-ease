@@ -204,6 +204,9 @@ export function EditClientDialog({
     try {
       const result = await regeneratePassword(client.id);
       setNewPassword(result.password);
+      // Also update the current password display
+      setCurrentPassword(result.password);
+      setShowPassword(true);
     } catch (error) {
       // Error is handled in the hook
     }
@@ -575,9 +578,6 @@ export function EditClientDialog({
                         )}
                       </Button>
                     </div>
-                    <p className="text-xs text-destructive">
-                      ⚠️ Save this password now. You won't be able to see it again.
-                    </p>
                   </div>
                 ) : (
                   <AlertDialog>
