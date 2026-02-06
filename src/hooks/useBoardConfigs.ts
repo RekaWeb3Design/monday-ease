@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useIntegration } from "@/hooks/useIntegration";
@@ -33,43 +34,39 @@ interface UseBoardConfigsReturn {
   refetch: () => Promise<void>;
 }
 
+// Helper to map raw config to typed config
+const mapConfigFields = (config: any): Omit<BoardConfigWithAccess, 'memberAccess'> => ({
+  id: config.id,
+  organization_id: config.organization_id,
+  monday_board_id: config.monday_board_id,
+  board_name: config.board_name,
+  filter_column_id: config.filter_column_id,
+  filter_column_name: config.filter_column_name,
+  filter_column_type: config.filter_column_type,
+  visible_columns: (config.visible_columns as string[]) || [],
+  is_active: config.is_active ?? true,
+  monday_account_id: config.monday_account_id || null,
+  workspace_name: config.workspace_name || null,
+  target_audience: config.target_audience || null,
+  created_at: config.created_at,
+  updated_at: config.updated_at,
+});
+
 export function useBoardConfigs(): UseBoardConfigsReturn {
   const { organization } = useAuth();
   const { integration } = useIntegration();
   const { toast } = useToast();
-  const [configs, setConfigs] = useState<BoardConfigWithAccess[]>([]);
-  const [inactiveConfigs, setInactiveConfigs] = useState<BoardConfigWithAccess[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const currentAccountId = integration?.monday_account_id;
 
-  // Helper to map raw config to typed config
-  const mapConfigFields = (config: any): Omit<BoardConfigWithAccess, 'memberAccess'> => ({
-    id: config.id,
-    organization_id: config.organization_id,
-    monday_board_id: config.monday_board_id,
-    board_name: config.board_name,
-    filter_column_id: config.filter_column_id,
-    filter_column_name: config.filter_column_name,
-    filter_column_type: config.filter_column_type,
-    visible_columns: (config.visible_columns as string[]) || [],
-    is_active: config.is_active ?? true,
-    monday_account_id: config.monday_account_id || null,
-    workspace_name: config.workspace_name || null,
-    target_audience: config.target_audience || null,
-    created_at: config.created_at,
-    updated_at: config.updated_at,
-  });
+  // Use React Query for fetching configs - prevents refetch on window focus
+  const { data, isLoading, refetch: queryRefetch } = useQuery({
+    queryKey: ["board-configs", organization?.id, currentAccountId],
+    queryFn: async (): Promise<{ active: BoardConfigWithAccess[]; inactive: BoardConfigWithAccess[] }> => {
+      if (!organization) {
+        return { active: [], inactive: [] };
+      }
 
-  const fetchConfigs = useCallback(async () => {
-    if (!organization) {
-      setConfigs([]);
-      setInactiveConfigs([]);
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-
-    try {
       // Fetch ALL configs for this organization (no account filter in query)
       const { data: allConfigsData, error: configsError } = await supabase
         .from("board_configs")
@@ -80,7 +77,6 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
       if (configsError) throw configsError;
 
       const allConfigs = allConfigsData || [];
-      const currentAccountId = integration?.monday_account_id;
 
       // JavaScript filtering - 100% reliable
       // ACTIVE: monday_account_id is NULL (legacy) OR matches current account
@@ -121,23 +117,19 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
         memberAccess: [],
       }));
 
-      setConfigs(activeConfigs);
-      setInactiveConfigs(inactiveConfigsMapped);
-    } catch (err) {
-      console.error("Error fetching board configs:", err);
-      toast({
-        title: "Error",
-        description: "Failed to load board configurations.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organization, integration?.monday_account_id, toast]);
+      return { active: activeConfigs, inactive: inactiveConfigsMapped };
+    },
+    enabled: !!organization?.id,
+    // Prevent refetching on window focus to avoid disrupting dialogs
+    refetchOnWindowFocus: false,
+  });
 
-  useEffect(() => {
-    fetchConfigs();
-  }, [fetchConfigs]);
+  const configs = data?.active ?? [];
+  const inactiveConfigs = data?.inactive ?? [];
+
+  const refetch = useCallback(async () => {
+    await queryRefetch();
+  }, [queryRefetch]);
 
   const createConfig = useCallback(
     async (input: CreateConfigInput): Promise<boolean> => {
@@ -195,7 +187,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
           description: `${input.board_name} has been configured successfully.`,
         });
 
-        await fetchConfigs();
+        await queryRefetch();
         return true;
       } catch (err) {
         console.error("Error creating board config:", err);
@@ -207,7 +199,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
         return false;
       }
     },
-    [organization, integration?.monday_account_id, toast, fetchConfigs]
+    [organization, integration?.monday_account_id, integration?.workspace_name, toast, queryRefetch]
   );
 
   const updateConfig = useCallback(
@@ -273,7 +265,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
           description: "Board configuration has been updated.",
         });
 
-        await fetchConfigs();
+        await queryRefetch();
         return true;
       } catch (err) {
         console.error("Error updating board config:", err);
@@ -285,7 +277,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
         return false;
       }
     },
-    [toast, fetchConfigs]
+    [toast, queryRefetch]
   );
 
   const deleteConfig = useCallback(
@@ -310,7 +302,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
           description: "Board configuration has been removed.",
         });
 
-        await fetchConfigs();
+        await queryRefetch();
         return true;
       } catch (err) {
         console.error("Error deleting board config:", err);
@@ -322,7 +314,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
         return false;
       }
     },
-    [toast, fetchConfigs]
+    [toast, queryRefetch]
   );
 
   return {
@@ -332,6 +324,6 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
     createConfig,
     updateConfig,
     deleteConfig,
-    refetch: fetchConfigs,
+    refetch,
   };
 }
