@@ -12,6 +12,7 @@ interface UseOrganizationMembersReturn {
   inviteMember: (email: string, displayName: string) => Promise<void>;
   updateMember: (memberId: string, updates: { displayName?: string; role?: MemberRole }) => Promise<void>;
   removeMember: (memberId: string) => Promise<void>;
+  resetMemberPassword: (memberId: string) => Promise<void>;
   refetch: () => Promise<void>;
 }
 
@@ -157,6 +158,43 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
     [toast, refetch]
   );
 
+  const resetMemberPassword = useCallback(
+    async (memberId: string) => {
+      if (!organization) {
+        throw new Error("Organization not available");
+      }
+
+      const { data, error } = await supabase.functions.invoke("reset-member-password", {
+        body: { memberId, organizationId: organization.id },
+      });
+
+      if (error) {
+        toast({
+          title: "Error",
+          description: error.message || "Failed to send password reset email",
+          variant: "destructive",
+        });
+        throw error;
+      }
+
+      if (!data?.success) {
+        const errorMessage = data?.error || "Failed to send password reset email";
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        });
+        throw new Error(errorMessage);
+      }
+
+      toast({
+        title: "Password Reset Sent",
+        description: "A password reset email has been sent to the team member.",
+      });
+    },
+    [organization, toast]
+  );
+
   return {
     members,
     isLoading,
@@ -164,6 +202,7 @@ export function useOrganizationMembers(): UseOrganizationMembersReturn {
     inviteMember,
     updateMember,
     removeMember,
+    resetMemberPassword,
     refetch,
   };
 }

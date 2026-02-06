@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Pencil, Plus, Trash2, Loader2, AlertCircle, Users, Eye, Settings, Camera } from "lucide-react";
+import { Pencil, Plus, Trash2, Loader2, AlertCircle, Users, Eye, Settings, Camera, KeyRound } from "lucide-react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -119,7 +119,7 @@ const getStatusBadgeClasses = (status: string) => {
 
 export default function Organization() {
   const { organization, memberRole, user, refreshOrganization } = useAuth();
-  const { members, isLoading, inviteMember, updateMember, removeMember } = useOrganizationMembers();
+  const { members, isLoading, inviteMember, updateMember, removeMember, resetMemberPassword } = useOrganizationMembers();
   const { toast } = useToast();
 
   // Dialog states
@@ -132,6 +132,8 @@ export default function Organization() {
   // Member view/edit states
   const [selectedMemberForView, setSelectedMemberForView] = useState<OrganizationMember | null>(null);
   const [selectedMemberForBoardEdit, setSelectedMemberForBoardEdit] = useState<OrganizationMember | null>(null);
+  const [memberToResetPassword, setMemberToResetPassword] = useState<OrganizationMember | null>(null);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [isViewSheetOpen, setIsViewSheetOpen] = useState(false);
   const [isEditBoardDialogOpen, setIsEditBoardDialogOpen] = useState(false);
   const [memberBoardCounts, setMemberBoardCounts] = useState<Record<string, number>>({});
@@ -274,6 +276,19 @@ export default function Organization() {
   const handleEditBoardAccess = (member: OrganizationMember) => {
     setSelectedMemberForBoardEdit(member);
     setIsEditBoardDialogOpen(true);
+  };
+
+  const handleResetPassword = async () => {
+    if (!memberToResetPassword) return;
+    setIsResettingPassword(true);
+    try {
+      await resetMemberPassword(memberToResetPassword.id);
+      setMemberToResetPassword(null);
+    } catch {
+      // Error handled in hook
+    } finally {
+      setIsResettingPassword(false);
+    }
   };
 
   const handleBoardAccessSaved = async () => {
@@ -659,6 +674,22 @@ export default function Organization() {
                                   <TooltipContent>Edit Member</TooltipContent>
                                 </Tooltip>
 
+                                {/* Reset Password - only for active members with user_id */}
+                                {member.status === "active" && member.user_id && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setMemberToResetPassword(member)}
+                                      >
+                                        <KeyRound className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Reset Password</TooltipContent>
+                                  </Tooltip>
+                                )}
+
                                 {/* Remove Member */}
                                 <AlertDialog>
                                   <Tooltip>
@@ -791,6 +822,30 @@ export default function Organization() {
         organizationId={organization.id}
         onSaved={handleBoardAccessSaved}
       />
+
+      {/* Reset Password Confirmation Dialog */}
+      <AlertDialog open={!!memberToResetPassword} onOpenChange={(open) => !open && setMemberToResetPassword(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset Password</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to send a password reset email to{" "}
+              <strong>{memberToResetPassword?.display_name || memberToResetPassword?.email}</strong>?
+              They will receive an email with a link to set a new password.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResettingPassword}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleResetPassword}
+              disabled={isResettingPassword}
+            >
+              {isResettingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Send Reset Email
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
