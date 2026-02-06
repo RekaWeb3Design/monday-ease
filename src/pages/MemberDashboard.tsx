@@ -3,14 +3,17 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMemberTasks } from "@/hooks/useMemberTasks";
 import { TaskStats } from "@/components/member/TaskStats";
 import { TaskCard } from "@/components/member/TaskCard";
+import { TaskListView } from "@/components/member/TaskListView";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, RefreshCw, ClipboardList, LayoutList } from "lucide-react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Loader2, RefreshCw, ClipboardList, LayoutList, LayoutGrid, List } from "lucide-react";
 
 export default function MemberDashboard() {
   const { profile } = useAuth();
   const { tasks, isLoading, error, refetch } = useMemberTasks();
   const [activeTab, setActiveTab] = useState<string>("all");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   const displayName = profile?.full_name || "there";
 
@@ -113,10 +116,24 @@ export default function MemberDashboard() {
             Welcome back, {displayName}! Here are your assigned tasks.
           </p>
         </div>
-        <Button onClick={refetch} variant="outline" size="sm">
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <ToggleGroup 
+            type="single" 
+            value={viewMode} 
+            onValueChange={(v) => v && setViewMode(v as "grid" | "list")}
+          >
+            <ToggleGroupItem value="grid" aria-label="Grid view" size="sm">
+              <LayoutGrid className="h-4 w-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="list" aria-label="List view" size="sm">
+              <List className="h-4 w-4" />
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <Button onClick={refetch} variant="outline" size="sm">
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Tab Navigation */}
@@ -146,16 +163,23 @@ export default function MemberDashboard() {
       {/* Stats row - uses filtered tasks */}
       <TaskStats tasks={filteredTasks} />
 
-      {/* Task grid - uses filtered tasks */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {filteredTasks.map((task) => (
-          <TaskCard 
-            key={task.id} 
-            task={task} 
-            showBoardName={activeTab === "all"} 
-          />
-        ))}
-      </div>
+      {/* Task view - uses filtered tasks */}
+      {viewMode === "grid" ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredTasks.map((task) => (
+            <TaskCard 
+              key={task.id} 
+              task={task} 
+              showBoardName={activeTab === "all"} 
+            />
+          ))}
+        </div>
+      ) : (
+        <TaskListView 
+          tasks={filteredTasks} 
+          showBoardName={activeTab === "all"} 
+        />
+      )}
     </div>
   );
 }
