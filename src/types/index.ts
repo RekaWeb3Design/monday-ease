@@ -103,7 +103,7 @@ export interface BoardConfig {
   is_active: boolean;
   monday_account_id: string | null;
   workspace_name: string | null;
-  target_audience: 'team' | 'clients' | null;
+  target_audience: 'team' | 'clients' | 'both' | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -140,9 +140,15 @@ export interface MondayColumn {
   type: string;
 }
 
+// Client board access with client info (for joins)
+export interface ClientBoardAccessWithClient extends ClientBoardAccess {
+  clients?: { company_name: string };
+}
+
 // Board config with member access (for UI)
 export interface BoardConfigWithAccess extends BoardConfig {
   memberAccess: MemberBoardAccess[];
+  clientAccess?: ClientBoardAccessWithClient[];
 }
 
 // Monday.com task item from API (for member dashboard)
