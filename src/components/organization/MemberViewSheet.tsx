@@ -1,17 +1,113 @@
+import { useMemo, useState, useEffect } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
+} from "@/components/ui/table";
 import { Settings, RefreshCw, ClipboardList, X } from "lucide-react";
 import { useMemberTasksForMember } from "@/hooks/useMemberTasksForMember";
 import { TaskStats } from "@/components/member/TaskStats";
-import { TaskCard } from "@/components/member/TaskCard";
-import type { OrganizationMember } from "@/types";
+import { format } from "date-fns";
+import type { OrganizationMember, MondayTask, MondayColumnValue } from "@/types";
 
 interface MemberViewSheetProps {
   isOpen: boolean;
   onClose: () => void;
   member: OrganizationMember | null;
   onEditBoardAccess: (member: OrganizationMember) => void;
+}
+
+interface BoardGroup {
+  boardId: string;
+  boardName: string;
+  tasks: MondayTask[];
+}
+
+const getBoardColumns = (boardTasks: MondayTask[]) => {
+  if (boardTasks.length === 0) return [];
+  const columnMap = new Map<string, { id: string; title: string; type: string }>();
+  for (const task of boardTasks) {
+    for (const cv of task.column_values) {
+      if (!columnMap.has(cv.id)) {
+        columnMap.set(cv.id, { id: cv.id, title: cv.title, type: cv.type });
+      }
+    }
+  }
+  return Array.from(columnMap.values());
+};
+
+const renderCellValue = (col: MondayColumnValue) => {
+  if (!col.text) return <span className="text-muted-foreground">—</span>;
+
+  if (col.type === "status" || col.type === "color") {
+    const labelColor = col.value?.label_style?.color;
+    return (
+      <Badge
+        className="text-xs border-none"
+        style={labelColor ? {
+          backgroundColor: labelColor,
+          color: "white",
+        } : undefined}
+      >
+        {col.text}
+      </Badge>
+    );
+  }
+
+  if (col.type === "date") {
+    try {
+      return format(new Date(col.text), "MMM dd");
+    } catch {
+      return col.text;
+    }
+  }
+
+  return <span className="truncate max-w-[200px] block">{col.text}</span>;
+};
+
+function BoardTable({ tasks }: { tasks: MondayTask[] }) {
+  const columns = getBoardColumns(tasks);
+
+  if (tasks.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+        No tasks assigned on this board
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="min-w-[180px]">Name</TableHead>
+            {columns.map((col) => (
+              <TableHead key={col.id} className="min-w-[100px]">{col.title}</TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {tasks.map((task) => (
+            <TableRow key={task.id}>
+              <TableCell className="font-medium">{task.name}</TableCell>
+              {columns.map((col) => {
+                const cv = task.column_values.find((c) => c.id === col.id);
+                return (
+                  <TableCell key={col.id}>
+                    {cv ? renderCellValue(cv) : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
 }
 
 export function MemberViewSheet({
@@ -25,6 +121,38 @@ export function MemberViewSheet({
   );
 
   const displayName = member?.display_name || member?.email?.split("@")[0] || "Member";
+
+  const boardGroups: BoardGroup[] = useMemo(() => {
+    const groups: Record<string, { boardName: string; tasks: MondayTask[] }> = {};
+    for (const task of tasks) {
+      const key = task.board_id;
+      if (!groups[key]) {
+        groups[key] = { boardName: task.board_name, tasks: [] };
+      }
+      groups[key].tasks.push(task);
+    }
+    return Object.entries(groups).map(([boardId, data]) => ({
+      boardId,
+      boardName: data.boardName,
+      tasks: data.tasks,
+    }));
+  }, [tasks]);
+
+  const [activeTab, setActiveTab] = useState<string>("");
+
+  useEffect(() => {
+    if (boardGroups.length > 0 && !activeTab) {
+      setActiveTab(boardGroups[0].boardId);
+    }
+  }, [boardGroups, activeTab]);
+
+  // Reset tab when sheet closes
+  useEffect(() => {
+    if (!isOpen) setActiveTab("");
+  }, [isOpen]);
+
+  const activeBoard = boardGroups.find((b) => b.boardId === activeTab);
+  const activeTasks = activeBoard?.tasks || tasks;
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -56,18 +184,13 @@ export function MemberViewSheet({
         {/* Loading state */}
         {isLoading && (
           <div className="space-y-6">
-            {/* Stats skeleton */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[1, 2, 3, 4].map((i) => (
                 <Skeleton key={i} className="h-24 w-full" />
               ))}
             </div>
-            {/* Cards skeleton */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              {[1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} className="h-40 w-full" />
-              ))}
-            </div>
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-64 w-full" />
           </div>
         )}
 
@@ -127,15 +250,28 @@ export function MemberViewSheet({
               </Button>
             </div>
 
-            {/* Stats row */}
-            <TaskStats tasks={tasks} />
+            {/* Stats row — scoped to active tab */}
+            <TaskStats tasks={activeTasks} />
 
-            {/* Task grid */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              {tasks.map((task) => (
-                <TaskCard key={task.id} task={task} />
-              ))}
-            </div>
+            {/* Tabbed table view or single table */}
+            {boardGroups.length === 1 ? (
+              <BoardTable tasks={boardGroups[0].tasks} />
+            ) : (
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="w-full flex-wrap h-auto gap-1">
+                  {boardGroups.map((group) => (
+                    <TabsTrigger key={group.boardId} value={group.boardId} className="text-xs">
+                      {group.boardName} ({group.tasks.length})
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                {boardGroups.map((group) => (
+                  <TabsContent key={group.boardId} value={group.boardId}>
+                    <BoardTable tasks={group.tasks} />
+                  </TabsContent>
+                ))}
+              </Tabs>
+            )}
           </div>
         )}
       </SheetContent>
