@@ -1,7 +1,8 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { OverviewTab } from "@/components/demo-dashboard/OverviewTab";
 import { TasksTab } from "@/components/demo-dashboard/TasksTab";
+import { TeamTab } from "@/components/demo-dashboard/TeamTab";
+import { TimelineTab } from "@/components/demo-dashboard/TimelineTab";
 export default function DemoDashboard() {
   return (
     <div className="space-y-6">
@@ -47,28 +48,18 @@ export default function DemoDashboard() {
           </TabsContent>
 
           <TabsContent value="csapat">
-            <Card>
-              <CardHeader>
-                <CardTitle>Csapat</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">Hamarosan...</p>
-              </CardContent>
-            </Card>
+            <TeamTab />
           </TabsContent>
 
           <TabsContent value="idovonal">
-            <Card>
-              <CardHeader>
-                <CardTitle>Idővonal</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">Hamarosan...</p>
-              </CardContent>
-            </Card>
+            <TimelineTab />
           </TabsContent>
         </Tabs>
       </div>
+
+      <p className="text-[10px] text-muted-foreground text-center pt-4">
+        MondayEase Smart Dashboard — Powered by Monday.com adatok | Utolsó szinkron: 2026.02.12 15:30
+      </p>
     </div>
   );
 }
