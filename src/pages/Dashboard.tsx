@@ -313,7 +313,7 @@ export default function Dashboard() {
       )}
 
       {/* Enhanced Stats grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
         {stats.map((stat) => (
           <Card key={stat.title} className={`bg-gradient-to-br ${stat.gradient} border hover:shadow-md hover:translate-y-[-2px] transition-all duration-200`}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -333,7 +333,7 @@ export default function Dashboard() {
       </div>
 
       {/* Team Overview + Board Summary row */}
-      <div className="grid gap-4 md:grid-cols-2 animate-fade-in" style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}>
+      <div className="grid gap-4 md:grid-cols-2 animate-in fade-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}>
         {/* Team Overview */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
@@ -500,7 +500,7 @@ export default function Dashboard() {
       </div>
 
       {/* Clients + Quick Actions row */}
-      <div className="grid gap-4 md:grid-cols-2 animate-fade-in" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
+      <div className="grid gap-4 md:grid-cols-2 animate-in fade-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
         {/* Your Clients */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
@@ -590,7 +590,7 @@ export default function Dashboard() {
       </div>
 
       {/* Recent Activity */}
-      <Card className="animate-fade-in" style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}>
+      <Card className="animate-in fade-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Activity className="h-5 w-5 text-muted-foreground" />
