@@ -23,6 +23,7 @@ interface UpdateConfigInput {
   filter_column_name?: string | null;
   filter_column_type?: string | null;
   visible_columns?: string[];
+  target_audience?: 'team' | 'clients' | 'both';
   memberMappings?: { member_id: string; filter_value: string }[];
 }
 
@@ -253,6 +254,9 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
         }
         if (updates.visible_columns !== undefined) {
           configUpdate.visible_columns = updates.visible_columns;
+        }
+        if (updates.target_audience !== undefined) {
+          configUpdate.target_audience = updates.target_audience;
         }
 
         // Update board_configs table if there are config changes

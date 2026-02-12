@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Check, Copy, Eye, EyeOff, ExternalLink, Loader2, RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Check, Copy, Eye, EyeOff, ExternalLink, Loader2, Plus, RefreshCw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -34,6 +35,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useClients } from "@/hooks/useClients";
 import { useBoardConfigs } from "@/hooks/useBoardConfigs";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { ClientWithAccessCount, ClientBoardAccess } from "@/types";
 
@@ -76,7 +78,7 @@ export function EditClientDialog({
     isUpdatingAccess,
     getClientPassword,
   } = useClients();
-  const { configs: boardConfigs } = useBoardConfigs();
+  const { configs: boardConfigs, refetch: refetchConfigs } = useBoardConfigs();
 
   const [formData, setFormData] = useState({
     companyName: "",
@@ -125,32 +127,66 @@ export function EditClientDialog({
     (config) => config.target_audience === 'clients' || config.target_audience === 'both'
   );
 
+  const teamOnlyBoards = boardConfigs.filter(
+    (config) => config.target_audience === 'team' && config.is_active
+  );
+
   const loadBoardAccess = async () => {
     if (!client) return;
     setLoadingAccess(true);
 
     try {
+      // Use boardConfigs at call time, not stale closure
+      const currentClientBoards = boardConfigs.filter(
+        (config) => config.target_audience === 'clients' || config.target_audience === 'both'
+      );
+
       const access = await fetchClientBoardAccess(client.id);
       const accessMap = new Map(
         access.map((a) => [a.board_config_id, a.filter_value || ""])
       );
 
-      setBoards(
-        clientRelevantBoards.map((config) => ({
-          id: config.id,
-          name: config.board_name,
-          selected: accessMap.has(config.id),
-          filterValue: accessMap.get(config.id) || "",
-          hasFilterColumn: !!config.filter_column_id,
-          filterColumnName: config.filter_column_name || "Column",
-        }))
-      );
+      console.log('[ClientBoards] client:', client?.id);
+      console.log('[ClientBoards] fetchClientBoardAccess result:', access);
+      console.log('[ClientBoards] accessMap:', Array.from(accessMap.entries()));
+      console.log('[ClientBoards] clientRelevantBoards:', currentClientBoards.map(b => b.id + ' ' + b.board_name));
+
+      const mappedBoards = currentClientBoards.map((config) => ({
+        id: config.id,
+        name: config.board_name,
+        selected: accessMap.has(config.id),
+        filterValue: accessMap.get(config.id) || "",
+        hasFilterColumn: !!config.filter_column_id,
+        filterColumnName: config.filter_column_name || "Column",
+      }));
+
+      console.log('[ClientBoards] final boards with selected state:', mappedBoards);
+
+      setBoards(mappedBoards);
       setBoardsLoaded(true);
     } catch (error) {
       console.error("Error loading board access:", error);
       toast.error("Failed to load board access");
     } finally {
       setLoadingAccess(false);
+    }
+  };
+
+  const handleMakeAvailable = async (boardConfigId: string) => {
+    try {
+      const { error } = await supabase
+        .from("board_configs")
+        .update({ target_audience: 'both' })
+        .eq("id", boardConfigId);
+
+      if (error) throw error;
+
+      toast.success("Board is now available for clients");
+      setBoardsLoaded(false);
+      await refetchConfigs();
+    } catch (error) {
+      console.error("Error updating board target_audience:", error);
+      toast.error("Failed to update board");
     }
   };
 
@@ -478,6 +514,37 @@ export function EditClientDialog({
                 ))}
               </div>
             )}
+
+            {/* Team-only boards section */}
+            {teamOnlyBoards.length > 0 && (
+              <div className="space-y-2 pt-2">
+                <p className="text-sm font-medium text-muted-foreground">Other Boards (Team only)</p>
+                {teamOnlyBoards.map((board) => (
+                  <Card key={board.id} className="border-dashed">
+                    <CardContent className="p-3 flex items-center justify-between">
+                      <p className="text-sm">{board.board_name}</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-primary"
+                        onClick={() => handleMakeAvailable(board.id)}
+                      >
+                        <Plus className="h-3 w-3 mr-1" />
+                        Make available
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* Link to boards page */}
+            <p className="text-xs text-muted-foreground pt-2">
+              Don't see the board you need?{" "}
+              <Link to="/boards" className="text-primary hover:underline">
+                Configure a new board →
+              </Link>
+            </p>
 
             <div className="flex justify-end pt-4">
               <Button
