@@ -1,143 +1,133 @@
 
 
-# Global Filter Toolbar and Workload Heatmap
+# Add "Riportok" (Reports) Tab to Demo Dashboard
 
-## Summary
+## Overview
 
-Add a global filter toolbar that affects all 4 tabs simultaneously, and a workload visualization section to each Team tab member card. This involves creating 1 new file and modifying 6 existing files.
+Create a 5th tab on the Demo Dashboard showcasing a business intelligence / reporting view for a multi-location swimming pool business. This involves creating 2 new files and modifying 1 existing file.
 
 ## New Files
 
-### 1. `src/components/demo-dashboard/GlobalFilters.tsx`
+### 1. `src/data/demoReportData.ts`
 
-A toolbar component rendered between the demo banner and the Tabs on DemoDashboard.tsx.
+Contains all report-specific demo data:
 
-**Container**: `bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center gap-3 flex-wrap`
+**LOCATIONS** -- 8 swimming pool facilities with id, name, manager, and color (as specified in the prompt).
 
-**Contents (left to right):**
+**MonthlyKPI interface and data** -- 48 records (8 locations x 6 months: Sept 2025 - Feb 2026). Realistic revenue data:
+- Revenue plans: 2000-5000 thousand HUF/month
+- Buda and Pest overperform (105-115% of plan)
+- Miskolc and Pecs underperform (75-95%)
+- Q4 stronger, Jan dips, Feb recovering
+- Children counts: 150-400/month, new members: 20-80/month
 
-1. Label: "Szurok:" (text-sm font-medium text-gray-500)
+**YEARLY_GOALS** -- 5 company-level goals with progress, status, owner, and task counts (as specified).
 
-2. **Member filter** -- 5 clickable avatar chips (w-6 h-6 circle + first name). Unselected: gray border/bg. Selected: member-color border + ring. Reads `selectedMembers` / `toggleMember` from context.
+Helper functions:
+- `getLocationKPIs(locationId, month)` -- returns KPI for specific location and month
+- `getLatestMonth()` -- returns "2026-02" 
+- `getAllLocationsSummary(month)` -- returns summary table data for a month
+- `getLocationTrend(locationId)` -- returns 6-month trend for a location
 
-3. **Priority filter** -- 4 small toggle buttons (emoji + label). Active: priority color bg, white text. Inactive: bg-gray-100. Reads `selectedPriorities` / `togglePriority` from context.
+### 2. `src/components/demo-dashboard/ReportsTab.tsx`
 
-4. **Date range** -- 4 radio-style buttons: "Ma", "Ez a het", "Ez a honap", "Osszes". Active: bg-primary text-white. Reads `dateRange` / `setDateRange` from context.
+The main reports tab component with 3 vertical sections and internal state for the selected location.
 
-5. **Active filter count + Clear button** -- shown only when any filter is active. Displays "X szuro aktiv" badge + ghost "Szurok torlese" button with X icon that calls `clearFilters`.
+**SECTION 1: Celes celok (Company Goals)**
 
-## Modified Files
+Title: "Eves celok -- 2026" with subtitle.
 
-### 2. `src/components/demo-dashboard/DemoDashboardContext.tsx`
+Grid of goal cards (`grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4`). Each card:
+- White card, rounded-xl, shadow-sm, border, p-5
+- Goal name (font-bold text-sm)
+- Owner with small colored avatar circle (lookup from TEAM_MEMBERS + LOCATIONS managers)
+- ProgressBar component (h-3 variant via a wrapper or inline)
+- Status badge: color-coded span ("Jo uton" = green, "Folyamatban" = blue, "Elakadt" = red, "Kesz kozel" = purple)
+- "X/Y feladat kesz" text
+- Amber `border-l-4 border-amber-400` if progress < 50% and status is not "Jo uton"
 
-Expand the context with new state and computed values:
+**SECTION 2: Helyszinek teljesitmenye (Location Performance)**
 
-**New state:**
-- `selectedMembers: string[]` (empty = all)
-- `selectedPriorities: string[]` (empty = all)
-- `dateRange: "today" | "week" | "month" | "all"` (default: "all")
+Title: "Uszodak teljesitmenye -- havi bontas"
 
-**New functions:**
-- `toggleMember(name: string)` -- toggle name in/out of selectedMembers
-- `togglePriority(priority: string)` -- toggle priority in/out of selectedPriorities
-- `setDateRange(range)` -- set date range
-- `clearFilters()` -- reset all filters to defaults
-- `activeFilterCount: number` -- computed count of active filter categories
+**Location selector**: horizontal scrollable row of chips. "Osszesitett" + 8 location chips. Each shows a colored dot + name. Selected chip: `bg-primary/10 border-primary text-primary font-medium`. State: `selectedLocationId: number | null` (null = summary).
 
-**New computed value:**
-- `filteredTasks: DemoTask[]` -- memoized array applying all 3 filters to `getAllTasks()`
-- `filteredGroups: TaskGroup[]` -- memoized TASK_GROUPS with tasks filtered
+**When "Osszesitett" selected (default):**
+- shadcn Table: columns Helyszin, Havi bevetel (terv), Havi bevetel (teny), Teljesites %, Gyerekszam, Uj tagok
+- February 2026 data, sorted by teljesites % descending
+- Teljesites column: green if >=100%, red if <90%, yellow if 90-99%
+- Bold OSSZESEN total row at bottom
+- Below table: horizontal stacked bar showing revenue contribution per location (colored by location color, proportional widths)
 
-**Filter logic:**
-- Member: task has at least one assignee in selectedMembers (or all if empty)
-- Priority: task.priority is in selectedPriorities (or all if empty)
-- Date range: "today" = task.due === today, "week" = task.due within Mon-Sun of current week, "month" = same month/year, "all" = no filter
+**When specific location selected:**
+- Header: location name + manager
+- 3 stat cards in a row (`grid-cols-3 gap-4`): each shows metric name, actual vs plan, percentage with green/red arrow icon
+- **Trend bar chart** (pure CSS): flex container with 6 month columns. Each column has two vertical bars (plan = light color, actual = dark color) with heights proportional to max value. X-axis labels: Sze, Okt, Nov, Dec, Jan, Feb. Legend above.
+- Collapsible "Havi reszletek" section (using Collapsible from shadcn/ui) with a monthly breakdown table
+
+**SECTION 3: Szemely szintu attekintes (Person-level overview)**
+
+Title: "Felelosok haladasa"
+
+List of people who own goals or manage locations. For each person:
+- Row with avatar circle + name + role
+- Their goals with mini progress bars
+- Their managed location with latest month performance percentage
+- Overall indicator: green "Uren halad" or amber "Figyelmet igenyel" based on whether any of their goals/locations are underperforming
+
+## Modified File
 
 ### 3. `src/pages/DemoDashboard.tsx`
 
-- Import `GlobalFilters`
-- Render `<GlobalFilters />` between the amber demo banner and the Tabs div
-- Update tab trigger labels to show filtered counts from context, e.g., `Feladatok (8)` when filters reduce the count below 14
-- Access `filteredTasks` from context for the count
-
-### 4. `src/components/demo-dashboard/OverviewTab.tsx`
-
-- Replace `getAllTasks()` with `filteredTasks` from `useDemoDashboard()` context
-- All stat computations (stats, statusCounts, attentionTasks, donutGradient) now derive from `filteredTasks`
-- Handle edge case: if filteredTasks is empty, show a "Nincs talalat" message instead of dividing by zero in donut chart
-
-### 5. `src/components/demo-dashboard/TasksTab.tsx`
-
-- Replace `getAllTasks()` with `filteredTasks` from context
-- Replace the TASK_GROUPS-based filtering with `filteredGroups` from context, then apply local search/status filters on top
-- The local search and status filters remain as additional filters within the tab
-
-### 6. `src/components/demo-dashboard/TimelineTab.tsx`
-
-- Replace `getAllTasks()` with `filteredTasks` from context
-- Sort the filtered list by due date as before
-
-### 7. `src/components/demo-dashboard/TeamTab.tsx`
-
-- Replace `getAllTasks()` with `filteredTasks` from context for the per-member task lists
-- Add workload visualization between the stats row and the task list
-
-**Workload indicator bar** (added after stats row, before task list):
-- Calculate workload score: sum of (priority weight) for active (non-done) tasks, divided by 5, capped at 100%
-- Priority weights: Kritikus=4, Magas=3, Kozepes=2, Alacsony=1
-- Bar: h-2 rounded-full bg-gray-200 in mx-5 mb-2
-- Fill color: green if <40%, yellow 40-70%, red >70%
-- Label: "Konnyu" / "Kozepes" / "Tulterhelt" with matching color
-- Small text: "X aktiv feladat, Y lejart"
-
-**Weekly mini chart** (below workload bar, px-5 pb-2):
-- 5 small rectangles (w-8 h-6 rounded) for Mon-Fri
-- Color based on tasks due that day: 0=bg-gray-100, 1=bg-blue-200, 2=bg-blue-400, 3+=bg-blue-600
-- Labels below: H, K, Sz, Cs, P
-- Uses the current week's dates to match tasks
-
-**Team summary row** (above the member cards grid):
-- Card with title "Csapat osszefoglalo"
-- 3 stats in a grid (grid-cols-3):
-  - "Atlagos terheles": average workload % across members, with color indicator
-  - "Legtobb feladat": member name with highest task count
-  - "Figyelmet igenyel": member names with stuck/overdue tasks
+- Import `ReportsTab` from `@/components/demo-dashboard/ReportsTab`
+- Add 5th TabsTrigger after "Idovonal": `<TabsTrigger value="riportok">Riportok</TabsTrigger>`
+- Add corresponding TabsContent: `<TabsContent value="riportok"><ReportsTab /></TabsContent>`
 
 ## Technical Notes
 
-### Date range filter implementation
+### CSS Bar Chart Implementation
+
+The trend chart uses percentage-based heights inside a flex container:
 
 ```text
-today: task.due === format(today, "yyyy-MM-dd")
-week:  startOfWeek(today, {weekStartsOn:1}) <= taskDue <= endOfWeek(today, {weekStartsOn:1})
-month: task.due starts with "YYYY-MM" of current month
-all:   no filter
+Container: flex items-end gap-3, h-[200px]
+Each month column: flex-1, flex items-end gap-1
+Plan bar: div with bg-[locationColor]/30, height = (value/maxValue)*100%
+Actual bar: div with bg-[locationColor], height = (value/maxValue)*100%
+Value labels: text-[10px] above each bar
 ```
 
-Uses date-fns (already installed) for `startOfWeek`, `endOfWeek`, `format`.
+No external charting library needed -- pure CSS with inline height styles.
 
-### Workload score formula
+### Revenue Contribution Stacked Bar
+
+A single flex row where each segment's width is proportional to the location's revenue share:
 
 ```text
-score = sum(priorityWeight for each non-done task) / 5
-capped at 100
+width: `${(locationRevenue / totalRevenue) * 100}%`
+backgroundColor: location.color
 ```
 
-Where priorityWeight map: { "Kritikus": 4, "Magas": 3, "Kozepes": 2, "Alacsony": 1 }
+With tooltips showing location name + amount on hover.
 
-### Weekly mini chart date mapping
+### Goal Status Badge Colors
 
-Generate Mon-Fri dates for the current week, count how many of the member's tasks have `due` matching each date. This is a simple `.filter().length` for each day.
+```text
+"Jo uton" -> #00CA72 (green)
+"Folyamatban" -> #0086C0 (blue)  
+"Elakadt" -> #E2445C (red)
+"Kesz kozel" -> #A25DDC (purple)
+```
+
+### Person-level Data Merging
+
+Combine TEAM_MEMBERS (from demoData.ts) with LOCATIONS managers. Some names overlap (Kovacs Ildiko, Nagy Tamas, etc.) -- these get both their task goals and location management displayed.
 
 ## File Summary
 
 | File | Action |
 |------|--------|
-| `src/components/demo-dashboard/GlobalFilters.tsx` | Create |
-| `src/components/demo-dashboard/DemoDashboardContext.tsx` | Modify -- add filter state, filteredTasks, filteredGroups |
-| `src/pages/DemoDashboard.tsx` | Modify -- add GlobalFilters, show filtered counts on tabs |
-| `src/components/demo-dashboard/OverviewTab.tsx` | Modify -- use filteredTasks from context |
-| `src/components/demo-dashboard/TasksTab.tsx` | Modify -- use filteredTasks/filteredGroups from context |
-| `src/components/demo-dashboard/TeamTab.tsx` | Modify -- use filteredTasks, add workload bar + mini chart + summary row |
-| `src/components/demo-dashboard/TimelineTab.tsx` | Modify -- use filteredTasks from context |
+| `src/data/demoReportData.ts` | Create -- report demo data + helpers |
+| `src/components/demo-dashboard/ReportsTab.tsx` | Create -- full reports tab component |
+| `src/pages/DemoDashboard.tsx` | Modify -- add 5th tab trigger + content |
 
