@@ -148,7 +148,6 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
 
   const createConfig = useCallback(
     async (input: CreateConfigInput): Promise<boolean> => {
-      console.log('[BoardConfig] createConfig called with:', JSON.stringify(input, null, 2));
       if (!organization) {
         toast({
           title: "Error",
@@ -188,7 +187,6 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
             filter_value: m.filter_value.trim(),
           }));
 
-          console.log('[BoardConfig] Inserting member_board_access:', mappings);
           const { error: mappingError } = await supabase
             .from("member_board_access")
             .insert(mappings);
@@ -207,7 +205,6 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
             filter_value: m.filter_value.trim() || null,
           }));
 
-          console.log('[BoardConfig] Inserting client_board_access:', clientMappingsToInsert);
           const { error: clientMappingError } = await supabase
             .from("client_board_access")
             .insert(clientMappingsToInsert);
@@ -287,7 +284,6 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
               filter_value: m.filter_value.trim(),
             }));
 
-            console.log('[BoardConfig] Updating member_board_access:', mappings);
             const { error: insertError } = await supabase
               .from("member_board_access")
               .insert(mappings);

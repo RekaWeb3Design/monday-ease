@@ -308,12 +308,6 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
       filter_value: (clientFilterValues[clientId] || []).join(','),
     }));
 
-    console.log('[AddBoard] targetAudience:', targetAudience);
-    console.log('[AddBoard] selectedMembers:', Array.from(selectedMembers));
-    console.log('[AddBoard] memberFilterValues:', memberFilterValues);
-    console.log('[AddBoard] memberMappingsList:', memberMappingsList);
-    console.log('[AddBoard] About to call createConfig with memberMappings length:', memberMappingsList.length);
-
     const success = await createConfig({
       monday_board_id: selectedBoard.id,
       board_name: selectedBoard.name,

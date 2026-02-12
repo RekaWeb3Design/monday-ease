@@ -146,10 +146,7 @@ export function EditClientDialog({
         access.map((a) => [a.board_config_id, a.filter_value || ""])
       );
 
-      console.log('[ClientBoards] client:', client?.id);
-      console.log('[ClientBoards] fetchClientBoardAccess result:', access);
-      console.log('[ClientBoards] accessMap:', Array.from(accessMap.entries()));
-      console.log('[ClientBoards] clientRelevantBoards:', currentClientBoards.map(b => b.id + ' ' + b.board_name));
+
 
       const mappedBoards = currentClientBoards.map((config) => ({
         id: config.id,
@@ -159,8 +156,6 @@ export function EditClientDialog({
         hasFilterColumn: !!config.filter_column_id,
         filterColumnName: config.filter_column_name || "Column",
       }));
-
-      console.log('[ClientBoards] final boards with selected state:', mappedBoards);
 
       setBoards(mappedBoards);
       setBoardsLoaded(true);
