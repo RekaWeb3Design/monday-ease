@@ -3,6 +3,7 @@ import { OverviewTab } from "@/components/demo-dashboard/OverviewTab";
 import { TasksTab } from "@/components/demo-dashboard/TasksTab";
 import { TeamTab } from "@/components/demo-dashboard/TeamTab";
 import { TimelineTab } from "@/components/demo-dashboard/TimelineTab";
+import { ReportsTab } from "@/components/demo-dashboard/ReportsTab";
 import { DemoDashboardProvider, useDemoDashboard } from "@/components/demo-dashboard/DemoDashboardContext";
 import { TaskDetailPanel } from "@/components/demo-dashboard/TaskDetailPanel";
 import { GlobalFilters } from "@/components/demo-dashboard/GlobalFilters";
@@ -38,6 +39,7 @@ function DemoDashboardContent() {
               </TabsTrigger>
               <TabsTrigger value="csapat">Csapat</TabsTrigger>
               <TabsTrigger value="idovonal">Idővonal</TabsTrigger>
+              <TabsTrigger value="riportok">Riportok</TabsTrigger>
             </TabsList>
             <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm font-medium text-foreground">
               <span className="h-2 w-2 rounded-full bg-green-500" />
@@ -49,6 +51,7 @@ function DemoDashboardContent() {
           <TabsContent value="feladatok"><TasksTab /></TabsContent>
           <TabsContent value="csapat"><TeamTab /></TabsContent>
           <TabsContent value="idovonal"><TimelineTab /></TabsContent>
+          <TabsContent value="riportok"><ReportsTab /></TabsContent>
         </Tabs>
       </div>
 
