@@ -180,39 +180,39 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
 
         // Insert member mappings
         if (input.memberMappings.length > 0) {
-          const mappings = input.memberMappings
-            .filter((m) => m.filter_value.trim() !== "")
-            .map((m) => ({
-              board_config_id: configData.id,
-              member_id: m.member_id,
-              filter_value: m.filter_value.trim(),
-            }));
+          const mappings = input.memberMappings.map((m) => ({
+            board_config_id: configData.id,
+            member_id: m.member_id,
+            filter_value: m.filter_value.trim(),
+          }));
 
-          if (mappings.length > 0) {
-            const { error: mappingError } = await supabase
-              .from("member_board_access")
-              .insert(mappings);
+          console.log('[BoardConfig] Inserting member_board_access:', mappings);
+          const { error: mappingError } = await supabase
+            .from("member_board_access")
+            .insert(mappings);
 
-            if (mappingError) throw mappingError;
+          if (mappingError) {
+            console.error('[BoardConfig] member_board_access insert failed:', mappingError);
+            throw mappingError;
           }
         }
 
         // Insert client mappings
         if (input.clientMappings && input.clientMappings.length > 0) {
-          const clientMappingsToInsert = input.clientMappings
-            .filter((m) => m.filter_value.trim() !== "")
-            .map((m) => ({
-              board_config_id: configData.id,
-              client_id: m.client_id,
-              filter_value: m.filter_value.trim() || null,
-            }));
+          const clientMappingsToInsert = input.clientMappings.map((m) => ({
+            board_config_id: configData.id,
+            client_id: m.client_id,
+            filter_value: m.filter_value.trim() || null,
+          }));
 
-          if (clientMappingsToInsert.length > 0) {
-            const { error: clientMappingError } = await supabase
-              .from("client_board_access")
-              .insert(clientMappingsToInsert);
+          console.log('[BoardConfig] Inserting client_board_access:', clientMappingsToInsert);
+          const { error: clientMappingError } = await supabase
+            .from("client_board_access")
+            .insert(clientMappingsToInsert);
 
-            if (clientMappingError) throw clientMappingError;
+          if (clientMappingError) {
+            console.error('[BoardConfig] client_board_access insert failed:', clientMappingError);
+            throw clientMappingError;
           }
         }
 
@@ -276,20 +276,20 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
 
           // Insert new mappings
           if (updates.memberMappings.length > 0) {
-            const mappings = updates.memberMappings
-              .filter((m) => m.filter_value.trim() !== "")
-              .map((m) => ({
-                board_config_id: id,
-                member_id: m.member_id,
-                filter_value: m.filter_value.trim(),
-              }));
+            const mappings = updates.memberMappings.map((m) => ({
+              board_config_id: id,
+              member_id: m.member_id,
+              filter_value: m.filter_value.trim(),
+            }));
 
-            if (mappings.length > 0) {
-              const { error: insertError } = await supabase
-                .from("member_board_access")
-                .insert(mappings);
+            console.log('[BoardConfig] Updating member_board_access:', mappings);
+            const { error: insertError } = await supabase
+              .from("member_board_access")
+              .insert(mappings);
 
-              if (insertError) throw insertError;
+            if (insertError) {
+              console.error('[BoardConfig] member_board_access update insert failed:', insertError);
+              throw insertError;
             }
           }
         }
