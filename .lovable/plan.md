@@ -1,132 +1,143 @@
 
 
-# Enhance Demo Dashboard: Kanban, Task Detail Panel, and Donut Chart
+# Global Filter Toolbar and Workload Heatmap
 
-## Overview
+## Summary
 
-Add three major features to the Demo Dashboard: a Kanban view toggle on the Tasks tab, a task detail side panel accessible from all tabs, and a donut chart on the Overview tab. This involves creating 2 new files and modifying 5 existing files.
+Add a global filter toolbar that affects all 4 tabs simultaneously, and a workload visualization section to each Team tab member card. This involves creating 1 new file and modifying 6 existing files.
 
 ## New Files
 
-### 1. `src/components/demo-dashboard/DemoDashboardContext.tsx`
+### 1. `src/components/demo-dashboard/GlobalFilters.tsx`
 
-A React Context providing shared state for the task detail panel:
-- `selectedTask: DemoTask | null`
-- `isDetailOpen: boolean`
-- `openTaskDetail(task: DemoTask): void`
-- `closeTaskDetail(): void`
+A toolbar component rendered between the demo banner and the Tabs on DemoDashboard.tsx.
 
-The provider wraps the entire DemoDashboard page content.
+**Container**: `bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center gap-3 flex-wrap`
 
-### 2. `src/components/demo-dashboard/TaskDetailPanel.tsx`
+**Contents (left to right):**
 
-A shadcn `Sheet` (side="right") that opens when any task is clicked. Width ~420px via className on `SheetContent`.
+1. Label: "Szurok:" (text-sm font-medium text-gray-500)
 
-**Panel sections:**
+2. **Member filter** -- 5 clickable avatar chips (w-6 h-6 circle + first name). Unselected: gray border/bg. Selected: member-color border + ring. Reads `selectedMembers` / `toggleMember` from context.
 
-**Header**: Task name as `SheetTitle`, category badge below
+3. **Priority filter** -- 4 small toggle buttons (emoji + label). Active: priority color bg, white text. Inactive: bg-gray-100. Reads `selectedPriorities` / `togglePriority` from context.
 
-**Section 1 -- "Reszletek"**:
-- StatusBadge and PriorityBadge (displayed larger)
-- Due date: formatted with "Lejart!" in red if overdue, or "X nap van hatra" in green if upcoming
-- Felelosok: vertical list of assignees with colored avatar circles and full names
+4. **Date range** -- 4 radio-style buttons: "Ma", "Ez a het", "Ez a honap", "Osszes". Active: bg-primary text-white. Reads `dateRange` / `setDateRange` from context.
 
-**Section 2 -- "Haladas"**:
-- Larger ProgressBar (h-3)
-- "X/Y alfeladat kesz" text
-- Fake subtask checklist generated from a helper function based on task name and subtask counts. Done items get line-through + green checkmark, remaining get gray checkbox
-
-**Section 3 -- "Aktivitas"** (fake timeline):
-- 3-4 hardcoded activity entries with small avatars, descriptive text, and relative timestamps
-- Connected by a vertical line
+5. **Active filter count + Clear button** -- shown only when any filter is active. Displays "X szuro aktiv" badge + ghost "Szurok torlese" button with X icon that calls `clearFilters`.
 
 ## Modified Files
 
+### 2. `src/components/demo-dashboard/DemoDashboardContext.tsx`
+
+Expand the context with new state and computed values:
+
+**New state:**
+- `selectedMembers: string[]` (empty = all)
+- `selectedPriorities: string[]` (empty = all)
+- `dateRange: "today" | "week" | "month" | "all"` (default: "all")
+
+**New functions:**
+- `toggleMember(name: string)` -- toggle name in/out of selectedMembers
+- `togglePriority(priority: string)` -- toggle priority in/out of selectedPriorities
+- `setDateRange(range)` -- set date range
+- `clearFilters()` -- reset all filters to defaults
+- `activeFilterCount: number` -- computed count of active filter categories
+
+**New computed value:**
+- `filteredTasks: DemoTask[]` -- memoized array applying all 3 filters to `getAllTasks()`
+- `filteredGroups: TaskGroup[]` -- memoized TASK_GROUPS with tasks filtered
+
+**Filter logic:**
+- Member: task has at least one assignee in selectedMembers (or all if empty)
+- Priority: task.priority is in selectedPriorities (or all if empty)
+- Date range: "today" = task.due === today, "week" = task.due within Mon-Sun of current week, "month" = same month/year, "all" = no filter
+
 ### 3. `src/pages/DemoDashboard.tsx`
 
-- Import and wrap content with `DemoDashboardProvider`
-- Import `TaskDetailPanel` and render it inside the provider (once, at the bottom)
+- Import `GlobalFilters`
+- Render `<GlobalFilters />` between the amber demo banner and the Tabs div
+- Update tab trigger labels to show filtered counts from context, e.g., `Feladatok (8)` when filters reduce the count below 14
+- Access `filteredTasks` from context for the count
 
-### 4. `src/components/demo-dashboard/TasksTab.tsx`
+### 4. `src/components/demo-dashboard/OverviewTab.tsx`
 
-**View toggle**: Add a toggle button group (List / Columns3 icons from lucide-react) to the right of the existing filter bar. State: `viewMode: "table" | "kanban"`.
+- Replace `getAllTasks()` with `filteredTasks` from `useDemoDashboard()` context
+- All stat computations (stats, statusCounts, attentionTasks, donutGradient) now derive from `filteredTasks`
+- Handle edge case: if filteredTasks is empty, show a "Nincs talalat" message instead of dividing by zero in donut chart
 
-**Kanban view** (when viewMode === "kanban"):
-- `flex flex-row gap-4 overflow-x-auto pb-4`
-- One column per status (filtered to only statuses with matching tasks)
-- Column: `min-w-[280px] w-[280px]`, header with status color at 15% opacity, bold name + count badge
-- Column body: `bg-gray-50 rounded-b-lg p-3 space-y-3 min-h-[200px]`
-- Cards: white, rounded-lg, shadow-sm, showing task name (max 2 lines), category tag, AvatarStack + PriorityBadge, due date + small ProgressBar (w-20)
-- Each card and table row calls `openTaskDetail(task)` on click
+### 5. `src/components/demo-dashboard/TasksTab.tsx`
 
-Search and status filters apply to both views. In kanban, status filter shows only that column.
+- Replace `getAllTasks()` with `filteredTasks` from context
+- Replace the TASK_GROUPS-based filtering with `filteredGroups` from context, then apply local search/status filters on top
+- The local search and status filters remain as additional filters within the tab
 
-### 5. `src/components/demo-dashboard/OverviewTab.tsx`
+### 6. `src/components/demo-dashboard/TimelineTab.tsx`
 
-**Row 2 layout change**: `grid grid-cols-1 lg:grid-cols-2 gap-4`
-- Left: existing "Statusz eloszlas" horizontal bar card (unchanged)
-- Right: new "Statusz megoszlas" card with a CSS conic-gradient donut chart
-  - 180x180px circle with `conic-gradient()` computed from status proportions
-  - Inner white circle for the donut hole
-  - Center text: total count (large bold) + "feladat" below
-  - Hover: slight scale effect on the container
+- Replace `getAllTasks()` with `filteredTasks` from context
+- Sort the filtered list by due date as before
 
-**Attention items**: Each item calls `openTaskDetail(task)` on click with `cursor-pointer`
+### 7. `src/components/demo-dashboard/TeamTab.tsx`
 
-### 6. `src/components/demo-dashboard/TeamTab.tsx`
+- Replace `getAllTasks()` with `filteredTasks` from context for the per-member task lists
+- Add workload visualization between the stats row and the task list
 
-- Import and use `useDemoDashboard` context
-- Each task item in the scrollable list gets `cursor-pointer` and `onClick={() => openTaskDetail(task)}`
+**Workload indicator bar** (added after stats row, before task list):
+- Calculate workload score: sum of (priority weight) for active (non-done) tasks, divided by 5, capped at 100%
+- Priority weights: Kritikus=4, Magas=3, Kozepes=2, Alacsony=1
+- Bar: h-2 rounded-full bg-gray-200 in mx-5 mb-2
+- Fill color: green if <40%, yellow 40-70%, red >70%
+- Label: "Konnyu" / "Kozepes" / "Tulterhelt" with matching color
+- Small text: "X aktiv feladat, Y lejart"
 
-### 7. `src/components/demo-dashboard/TimelineTab.tsx`
+**Weekly mini chart** (below workload bar, px-5 pb-2):
+- 5 small rectangles (w-8 h-6 rounded) for Mon-Fri
+- Color based on tasks due that day: 0=bg-gray-100, 1=bg-blue-200, 2=bg-blue-400, 3+=bg-blue-600
+- Labels below: H, K, Sz, Cs, P
+- Uses the current week's dates to match tasks
 
-- Import and use `useDemoDashboard` context
-- Each content pill gets `cursor-pointer` and `onClick={() => openTaskDetail(task)}`
+**Team summary row** (above the member cards grid):
+- Card with title "Csapat osszefoglalo"
+- 3 stats in a grid (grid-cols-3):
+  - "Atlagos terheles": average workload % across members, with color indicator
+  - "Legtobb feladat": member name with highest task count
+  - "Figyelmet igenyel": member names with stuck/overdue tasks
 
-## Technical Details
+## Technical Notes
 
-### Subtask name generation (in TaskDetailPanel)
-
-A helper function that generates realistic subtask names based on the task category and name:
-
-```text
-const SUBTASK_TEMPLATES = {
-  Backend: ["Endpoint tervezes", "Auth implementalas", "Adatbazis migracio", "Unit tesztek", "Code review", "Dokumentacio"],
-  Frontend: ["UI design", "Komponens fejlesztes", "Reszponziv nezet", "Teszteles", "Akadalymentes..."],
-  QA: ["Teszt terv", "Teszt esetek", "Automatizalas", "Regresszio", "Jelentes", ...],
-  ...
-}
-```
-
-Pick `subtasksTotal` names, mark first `subtasksDone` as completed.
-
-### Donut chart (CSS conic-gradient)
+### Date range filter implementation
 
 ```text
-background: conic-gradient(
-  #00CA72 0deg Xdeg,    // Kesz
-  #FDAB3D Xdeg Ydeg,    // Folyamatban
-  ...
-);
+today: task.due === format(today, "yyyy-MM-dd")
+week:  startOfWeek(today, {weekStartsOn:1}) <= taskDue <= endOfWeek(today, {weekStartsOn:1})
+month: task.due starts with "YYYY-MM" of current month
+all:   no filter
 ```
 
-Computed dynamically from status counts. Inner circle is a centered white div (60% of outer size) creating the donut hole.
+Uses date-fns (already installed) for `startOfWeek`, `endOfWeek`, `format`.
 
-### View toggle styling
+### Workload score formula
 
-Active button: `bg-primary text-white` (uses the #01cb72 green primary)
-Inactive button: `bg-gray-100 text-gray-600`
-Grouped together with `rounded-lg overflow-hidden flex`
+```text
+score = sum(priorityWeight for each non-done task) / 5
+capped at 100
+```
+
+Where priorityWeight map: { "Kritikus": 4, "Magas": 3, "Kozepes": 2, "Alacsony": 1 }
+
+### Weekly mini chart date mapping
+
+Generate Mon-Fri dates for the current week, count how many of the member's tasks have `due` matching each date. This is a simple `.filter().length` for each day.
 
 ## File Summary
 
 | File | Action |
 |------|--------|
-| `src/components/demo-dashboard/DemoDashboardContext.tsx` | Create |
-| `src/components/demo-dashboard/TaskDetailPanel.tsx` | Create |
-| `src/pages/DemoDashboard.tsx` | Modify -- wrap with provider, add panel |
-| `src/components/demo-dashboard/TasksTab.tsx` | Modify -- add kanban view + toggle + click handler |
-| `src/components/demo-dashboard/OverviewTab.tsx` | Modify -- add donut chart + click handlers |
-| `src/components/demo-dashboard/TeamTab.tsx` | Modify -- add click handlers |
-| `src/components/demo-dashboard/TimelineTab.tsx` | Modify -- add click handlers |
+| `src/components/demo-dashboard/GlobalFilters.tsx` | Create |
+| `src/components/demo-dashboard/DemoDashboardContext.tsx` | Modify -- add filter state, filteredTasks, filteredGroups |
+| `src/pages/DemoDashboard.tsx` | Modify -- add GlobalFilters, show filtered counts on tabs |
+| `src/components/demo-dashboard/OverviewTab.tsx` | Modify -- use filteredTasks from context |
+| `src/components/demo-dashboard/TasksTab.tsx` | Modify -- use filteredTasks/filteredGroups from context |
+| `src/components/demo-dashboard/TeamTab.tsx` | Modify -- use filteredTasks, add workload bar + mini chart + summary row |
+| `src/components/demo-dashboard/TimelineTab.tsx` | Modify -- use filteredTasks from context |
 
