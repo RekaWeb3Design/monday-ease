@@ -147,6 +147,7 @@ export function useBoardConfigs(): UseBoardConfigsReturn {
 
   const createConfig = useCallback(
     async (input: CreateConfigInput): Promise<boolean> => {
+      console.log('[BoardConfig] createConfig called with:', JSON.stringify(input, null, 2));
       if (!organization) {
         toast({
           title: "Error",
