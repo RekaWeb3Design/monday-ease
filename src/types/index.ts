@@ -80,7 +80,8 @@ export interface UserIntegration {
   integration_type: string;
   status: 'connected' | 'disconnected' | 'expired' | 'error';
   workspace_name: string | null;
-  monday_account_id: string | null;
+  account_name: string | null;
+  monday_account_id: string;
   monday_user_id: string | null;
   access_token: string;
   scopes: string[] | null;
