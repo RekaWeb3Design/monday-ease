@@ -57,6 +57,8 @@ interface BoardSelection {
   name: string;
   selected: boolean;
   filterValue: string;
+  hasFilterColumn: boolean;
+  filterColumnName: string;
 }
 
 export function EditClientDialog({
@@ -87,6 +89,7 @@ export function EditClientDialog({
   });
   const [boards, setBoards] = useState<BoardSelection[]>([]);
   const [loadingAccess, setLoadingAccess] = useState(false);
+  const [boardsLoaded, setBoardsLoaded] = useState(false);
   const [newPassword, setNewPassword] = useState<string | null>(null);
   const [passwordCopied, setPasswordCopied] = useState(false);
   const [currentPassword, setCurrentPassword] = useState<string | null>(null);
@@ -107,17 +110,20 @@ export function EditClientDialog({
         status: client.status,
       });
 
-      // Load board access
-      loadBoardAccess();
+      setBoardsLoaded(false);
     }
-  }, [client, open]);
+  }, [client?.id, open]);
 
-  // Re-load boards when boardConfigs changes (handles async loading)
+  // Re-load boards when boardConfigs become available
   useEffect(() => {
-    if (open && boardConfigs.length > 0 && boards.length === 0 && !loadingAccess) {
+    if (open && boardConfigs.length > 0 && !boardsLoaded && !loadingAccess) {
       loadBoardAccess();
     }
-  }, [boardConfigs, open]);
+  }, [boardConfigs, open, boardsLoaded, loadingAccess]);
+
+  const clientRelevantBoards = boardConfigs.filter(
+    (config) => config.target_audience === 'clients' || config.target_audience === 'both'
+  );
 
   const loadBoardAccess = async () => {
     if (!client) return;
@@ -130,13 +136,16 @@ export function EditClientDialog({
       );
 
       setBoards(
-        boardConfigs.map((config) => ({
+        clientRelevantBoards.map((config) => ({
           id: config.id,
           name: config.board_name,
           selected: accessMap.has(config.id),
           filterValue: accessMap.get(config.id) || "",
+          hasFilterColumn: !!config.filter_column_id,
+          filterColumnName: config.filter_column_name || "Column",
         }))
       );
+      setBoardsLoaded(true);
     } catch (error) {
       console.error("Error loading board access:", error);
       toast.error("Failed to load board access");
@@ -408,11 +417,11 @@ export function EditClientDialog({
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            ) : boardConfigs.length === 0 ? (
+            ) : clientRelevantBoards.length === 0 ? (
               <Card className="border-dashed">
                 <CardContent className="flex flex-col items-center justify-center py-8 text-center">
                   <p className="text-muted-foreground">
-                    No boards configured yet.
+                    No boards configured for client access yet. Configure a board with target audience "Clients" or "Both" first.
                   </p>
                 </CardContent>
               </Card>
@@ -437,21 +446,29 @@ export function EditClientDialog({
                           <p className="font-medium">{board.name}</p>
                           {board.selected && (
                             <div onClick={(e) => e.stopPropagation()}>
-                              <Label
-                                htmlFor={`filter-${board.id}`}
-                                className="text-xs text-muted-foreground"
-                              >
-                                Filter Value (optional)
-                              </Label>
-                              <Input
-                                id={`filter-${board.id}`}
-                                value={board.filterValue}
-                                onChange={(e) =>
-                                  handleFilterChange(board.id, e.target.value)
-                                }
-                                placeholder="e.g., Client Name"
-                                className="mt-1"
-                              />
+                              {board.hasFilterColumn ? (
+                                <>
+                                  <Label
+                                    htmlFor={`filter-${board.id}`}
+                                    className="text-xs text-muted-foreground"
+                                  >
+                                    Filter by {board.filterColumnName}
+                                  </Label>
+                                  <Input
+                                    id={`filter-${board.id}`}
+                                    value={board.filterValue}
+                                    onChange={(e) =>
+                                      handleFilterChange(board.id, e.target.value)
+                                    }
+                                    placeholder="e.g., Client Name"
+                                    className="mt-1"
+                                  />
+                                </>
+                              ) : (
+                                <p className="text-xs text-muted-foreground italic">
+                                  Client will see all items on this board
+                                </p>
+                              )}
                             </div>
                           )}
                         </div>
