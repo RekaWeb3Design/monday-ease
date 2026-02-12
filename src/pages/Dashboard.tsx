@@ -12,11 +12,15 @@ import {
   XCircle,
   Clock,
   Loader2,
+  ArrowRight,
+  Building2,
+  Eye,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/useAuth";
 import { useBoardConfigs } from "@/hooks/useBoardConfigs";
 import { useOrganizationMembers } from "@/hooks/useOrganizationMembers";
@@ -24,6 +28,7 @@ import { useWorkflowTemplates } from "@/hooks/useWorkflowTemplates";
 import { useWorkflowExecutions } from "@/hooks/useWorkflowExecutions";
 import { useIntegration } from "@/hooks/useIntegration";
 import { useCustomBoardViews } from "@/hooks/useCustomBoardViews";
+import { useClients } from "@/hooks/useClients";
 import { GettingStartedChecklist } from "@/components/dashboard/GettingStartedChecklist";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 
@@ -97,6 +102,43 @@ const getRoleLabel = (role: string | null) => {
   }
 };
 
+function getInitials(name: string | null | undefined, email?: string): string {
+  if (name) {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+  }
+  if (email) return email[0].toUpperCase();
+  return "?";
+}
+
+function getStatusBadgeClass(status: string) {
+  switch (status) {
+    case "success":
+      return "bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] border-[hsl(var(--primary))]/20";
+    case "failed":
+      return "bg-[hsl(var(--destructive))]/10 text-[hsl(var(--destructive))] border-[hsl(var(--destructive))]/20";
+    case "running":
+      return "bg-[hsl(var(--warning))]/10 text-[hsl(var(--warning))] border-[hsl(var(--warning))]/20";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
+}
+
+function getAudienceLabel(audience: string | null) {
+  switch (audience) {
+    case "clients":
+      return "Clients";
+    case "both":
+      return "Both";
+    default:
+      return "Team";
+  }
+}
+
 export default function Dashboard() {
   const { user, profile, organization, memberRole } = useAuth();
   const { configs, isLoading: boardsLoading } = useBoardConfigs();
@@ -105,6 +147,7 @@ export default function Dashboard() {
   const { executions, isLoading: executionsLoading } = useWorkflowExecutions();
   const { isConnected } = useIntegration();
   const { views, isLoading: viewsLoading } = useCustomBoardViews();
+  const { clients, isLoading: clientsLoading } = useClients();
 
   const displayName = profile?.full_name || profile?.email?.split("@")[0] || "User";
 
@@ -126,7 +169,21 @@ export default function Dashboard() {
   // Recent executions for activity feed (last 5)
   const recentExecutions = executions.slice(0, 5);
 
-  // Build stats array with real values
+  // Member board counts
+  const memberBoardCounts = new Map<string, number>();
+  configs.forEach((config) => {
+    (config as any).memberAccess?.forEach((access: any) => {
+      memberBoardCounts.set(
+        access.member_id,
+        (memberBoardCounts.get(access.member_id) || 0) + 1
+      );
+    });
+  });
+
+  // Active boards for summary
+  const activeBoards = configs.filter((c) => c.is_active).slice(0, 4);
+
+  // Stats
   const stats = [
     {
       title: "Total Boards",
@@ -134,6 +191,9 @@ export default function Dashboard() {
       description: "Configured boards",
       icon: LayoutDashboard,
       isLoading: boardsLoading,
+      gradient: "from-blue-500/10 to-blue-600/5",
+      iconColor: "text-blue-600",
+      iconBg: "bg-blue-500/10",
     },
     {
       title: "Team Members",
@@ -141,6 +201,9 @@ export default function Dashboard() {
       description: "Active members",
       icon: Users,
       isLoading: membersLoading,
+      gradient: "from-emerald-500/10 to-emerald-600/5",
+      iconColor: "text-emerald-600",
+      iconBg: "bg-emerald-500/10",
     },
     {
       title: "Templates",
@@ -148,6 +211,9 @@ export default function Dashboard() {
       description: "Available workflows",
       icon: Zap,
       isLoading: templatesLoading,
+      gradient: "from-purple-500/10 to-purple-600/5",
+      iconColor: "text-purple-600",
+      iconBg: "bg-purple-500/10",
     },
     {
       title: "Executions",
@@ -155,7 +221,17 @@ export default function Dashboard() {
       description: "This month",
       icon: TrendingUp,
       isLoading: executionsLoading,
+      gradient: "from-orange-500/10 to-orange-600/5",
+      iconColor: "text-orange-600",
+      iconBg: "bg-orange-500/10",
     },
+  ];
+
+  const quickActions = [
+    { label: "Configure Boards", to: "/boards", icon: LayoutDashboard, color: "text-blue-600", bg: "bg-blue-500/10" },
+    { label: "Manage Team", to: "/organization", icon: Users, color: "text-emerald-600", bg: "bg-emerald-500/10" },
+    { label: "Run Template", to: "/templates", icon: Zap, color: "text-purple-600", bg: "bg-purple-500/10" },
+    { label: "Integrations", to: "/integrations", icon: Settings, color: "text-orange-600", bg: "bg-orange-500/10" },
   ];
 
   return (
@@ -211,71 +287,292 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Stats grid */}
+      {/* Enhanced Stats grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
-          <Card key={stat.title}>
+          <Card key={stat.title} className={`bg-gradient-to-br ${stat.gradient} border`}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 {stat.title}
               </CardTitle>
-              <stat.icon className="h-4 w-4 text-muted-foreground" />
+              <div className={`rounded-lg p-2 ${stat.iconBg}`}>
+                <stat.icon className={`h-4 w-4 ${stat.iconColor}`} />
+              </div>
             </CardHeader>
             <CardContent>
               {stat.isLoading ? (
-                <Skeleton className="h-8 w-16" />
+                <Skeleton className="h-9 w-16" />
               ) : (
-                <div className="text-2xl font-bold">{stat.value}</div>
+                <div className="text-3xl font-bold">{stat.value}</div>
               )}
-              <p className="text-xs text-muted-foreground">{stat.description}</p>
+              <p className="text-xs text-muted-foreground mt-1">{stat.description}</p>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5" />
-            Quick Actions
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Button variant="outline" asChild className="justify-start">
-              <Link to="/boards">
-                <LayoutDashboard className="mr-2 h-4 w-4" />
-                Configure Boards
+      {/* Team Overview + Board Summary row */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Team Overview */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Users className="h-5 w-5 text-muted-foreground" />
+              Team Overview
+            </CardTitle>
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/organization" className="text-xs text-muted-foreground">
+                View all <ArrowRight className="ml-1 h-3 w-3" />
               </Link>
             </Button>
-            <Button variant="outline" asChild className="justify-start">
-              <Link to="/organization">
-                <Users className="mr-2 h-4 w-4" />
-                Manage Team
+          </CardHeader>
+          <CardContent>
+            {membersLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <Skeleton className="h-8 w-8 rounded-full" />
+                    <div className="flex-1 space-y-1">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : members.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No team members yet.{" "}
+                <Link to="/organization" className="text-primary underline">
+                  Invite someone
+                </Link>
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {members.slice(0, 5).map((member) => {
+                  const boardCount = memberBoardCounts.get(member.id) || 0;
+                  const isCurrentUser = member.user_id === user?.id;
+                  return (
+                    <div
+                      key={member.id}
+                      className="flex items-center justify-between rounded-lg border p-2.5"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                            {getInitials(member.display_name, member.email)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-sm font-medium leading-none">
+                            {member.display_name || member.email}
+                          </p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Badge
+                              variant={getRoleBadgeVariant(member.role)}
+                              className="text-[10px] px-1.5 py-0"
+                            >
+                              {getRoleLabel(member.role)}
+                            </Badge>
+                            <Badge
+                              variant={member.status === "active" ? "default" : "secondary"}
+                              className="text-[10px] px-1.5 py-0"
+                            >
+                              {member.status === "active" ? "Active" : "Pending"}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {isCurrentUser ? (
+                          <span className="text-primary font-medium">You</span>
+                        ) : (
+                          <>
+                            <span>{boardCount} board{boardCount !== 1 ? "s" : ""}</span>
+                            <Link to="/organization">
+                              <Eye className="h-3.5 w-3.5 hover:text-foreground transition-colors" />
+                            </Link>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {members.length > 5 && (
+                  <Link
+                    to="/organization"
+                    className="block text-xs text-primary text-center hover:underline pt-1"
+                  >
+                    View all {members.length} members →
+                  </Link>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Your Boards */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <LayoutDashboard className="h-5 w-5 text-muted-foreground" />
+              Your Boards
+            </CardTitle>
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/boards" className="text-xs text-muted-foreground">
+                View all <ArrowRight className="ml-1 h-3 w-3" />
               </Link>
             </Button>
-            <Button variant="outline" asChild className="justify-start">
-              <Link to="/templates">
-                <Zap className="mr-2 h-4 w-4" />
-                Run Template
+          </CardHeader>
+          <CardContent>
+            {boardsLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-14 w-full" />
+                ))}
+              </div>
+            ) : activeBoards.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No boards configured yet.{" "}
+                <Link to="/boards" className="text-primary underline">
+                  Add your first board
+                </Link>
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {activeBoards.map((board) => {
+                  const memberCount = (board as any).memberAccess?.length || 0;
+                  const colCount = Array.isArray(board.visible_columns)
+                    ? board.visible_columns.length
+                    : 0;
+                  return (
+                    <div
+                      key={board.id}
+                      className="rounded-lg border p-2.5"
+                    >
+                      <p className="text-sm font-medium truncate">{board.board_name}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                          {getAudienceLabel(board.target_audience)}
+                        </Badge>
+                        <span className="text-[11px] text-muted-foreground">
+                          {memberCount} member{memberCount !== 1 ? "s" : ""}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          · {colCount} column{colCount !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {configs.filter((c) => c.is_active).length > 4 && (
+                  <Link
+                    to="/boards"
+                    className="block text-xs text-primary text-center hover:underline pt-1"
+                  >
+                    View all {configs.filter((c) => c.is_active).length} boards →
+                  </Link>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Clients + Quick Actions row */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Your Clients */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Building2 className="h-5 w-5 text-muted-foreground" />
+              Your Clients
+            </CardTitle>
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/clients" className="text-xs text-muted-foreground">
+                Manage <ArrowRight className="ml-1 h-3 w-3" />
               </Link>
             </Button>
-            <Button variant="outline" asChild className="justify-start">
-              <Link to="/integrations">
-                <Settings className="mr-2 h-4 w-4" />
-                Integrations
-              </Link>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            {clientsLoading ? (
+              <div className="space-y-3">
+                {[1, 2].map((i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : clients.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No clients yet.{" "}
+                <Link to="/clients" className="text-primary underline">
+                  Add your first client
+                </Link>
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {clients.slice(0, 3).map((client) => (
+                  <div
+                    key={client.id}
+                    className="flex items-center justify-between rounded-lg border p-2.5"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                        <Building2 className="h-4 w-4 text-primary" />
+                      </div>
+                      <p className="text-sm font-medium truncate">
+                        {client.company_name}
+                      </p>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {client.board_access_count} board
+                      {client.board_access_count !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                ))}
+                {clients.length > 3 && (
+                  <Link
+                    to="/clients"
+                    className="block text-xs text-primary text-center hover:underline pt-1"
+                  >
+                    View all {clients.length} clients →
+                  </Link>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Quick Actions */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Sparkles className="h-5 w-5 text-muted-foreground" />
+              Quick Actions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 grid-cols-2">
+              {quickActions.map((action) => (
+                <Link
+                  key={action.to}
+                  to={action.to}
+                  className="flex items-center gap-3 rounded-lg border p-3 hover:shadow-md hover:scale-[1.02] transition-all cursor-pointer"
+                >
+                  <div className={`rounded-lg p-2 ${action.bg}`}>
+                    <action.icon className={`h-4 w-4 ${action.color}`} />
+                  </div>
+                  <span className="text-sm font-medium">{action.label}</span>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Recent Activity */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5" />
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Activity className="h-5 w-5 text-muted-foreground" />
             Recent Activity
           </CardTitle>
         </CardHeader>
@@ -291,8 +588,16 @@ export default function Dashboard() {
               <div className="flex h-20 w-40 items-center justify-center">
                 <img src={mondayeaseLogo} alt="MondayEase" className="h-auto w-full opacity-50" />
               </div>
-              <p className="mt-4 text-muted-foreground">No recent workflow executions</p>
-              <p className="text-sm text-muted-foreground">Run a template to see activity here</p>
+              <p className="mt-4 font-medium text-muted-foreground">No recent activity</p>
+              <p className="text-sm text-muted-foreground mb-3">
+                Start by configuring a board or running a template!
+              </p>
+              <Button asChild size="sm" variant="outline">
+                <Link to="/boards">
+                  <LayoutDashboard className="mr-2 h-4 w-4" />
+                  Configure a Board
+                </Link>
+              </Button>
             </div>
           ) : (
             <div className="space-y-3">
@@ -312,7 +617,9 @@ export default function Dashboard() {
                       </p>
                     </div>
                   </div>
-                  <Badge variant={getStatusVariant(exec.status)}>{exec.status}</Badge>
+                  <Badge className={getStatusBadgeClass(exec.status)}>
+                    {exec.status}
+                  </Badge>
                 </div>
               ))}
             </div>
