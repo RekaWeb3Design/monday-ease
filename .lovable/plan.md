@@ -1,98 +1,95 @@
 
+# Fix: Client Edit Boards Tab — Pre-selection Bug + Enhancements
 
-# Fix: Client Edit Dialog — Boards Tab Empty
+## Bug Fix: Pre-selected boards not checked
 
-## Root Cause
+**Root Cause**: The `loadBoardAccess` function computes `clientRelevantBoards` outside the function body (line 124-126) as a component-level variable. This means it uses `boardConfigs` from the render cycle, which is correct. However, the `accessMap` lookup uses `config.id` which should match `a.board_config_id` from the access records. The actual issue is likely a **closure/timing problem**: `clientRelevantBoards` is computed at render time, but `loadBoardAccess` captures a stale reference. When `boardConfigs` loads asynchronously, the first call to `loadBoardAccess` may use an empty `clientRelevantBoards`.
 
-The "Boards" tab in the Edit Client dialog has two issues:
+**Fix**: Move the `clientRelevantBoards` computation inside `loadBoardAccess` so it always uses the latest `boardConfigs`. Add debug console logs as requested.
 
-1. **No target_audience filter**: The `loadBoardAccess` function maps over ALL board configs (team, clients, both) instead of filtering to only show boards where `target_audience` is `'clients'` or `'both'`. If all boards are configured as `'team'`, the boards list shows irrelevant boards. More critically, even when client-targeted boards exist, they may not display correctly.
+## Enhancement 1: Show "Other Boards (Team only)" section
 
-2. **Race condition on reload**: The `useEffect` on line 117 that re-triggers `loadBoardAccess` when `boardConfigs` loads has a fragile guard: `boards.length === 0 && !loadingAccess`. If `loadBoardAccess` already ran with an empty `boardConfigs` array (common on first render), `boards` gets set to an empty array, and `loadingAccess` becomes `false` -- but the guard `boards.length === 0` is true, so it should re-trigger. However, `boardConfigs` from `useBoardConfigs` depends on async data, and the effect dependency array `[boardConfigs, open]` may not always fire reliably when configs populate.
+Below the client-relevant boards list, show all other active boards (where `target_audience === 'team'`) with a "+ Make available for clients" button.
 
-## Fix Plan
+Clicking it will:
+- Update the board's `target_audience` from `'team'` to `'both'` via a direct Supabase update
+- Move the board into the "Available Boards" section
+- Show a success toast
+
+This requires extending `UpdateConfigInput` in `useBoardConfigs.ts` to support `target_audience`, and adding the corresponding logic in `updateConfig`.
+
+## Enhancement 2: "Configure a new board" link
+
+A simple text link at the bottom of the Boards tab pointing to `/boards`.
+
+---
+
+## Technical Details
+
+### File: `src/hooks/useBoardConfigs.ts`
+
+- Add `target_audience?: 'team' | 'clients' | 'both'` to `UpdateConfigInput` interface
+- Add handling for `target_audience` in the `updateConfig` function's config update builder
 
 ### File: `src/components/clients/EditClientDialog.tsx`
 
-**Change 1 — Filter boards by target_audience:**
+**Bug fix:**
+- Move `clientRelevantBoards` filtering inside `loadBoardAccess` so it uses the current `boardConfigs` at call time, not a stale closure
+- Add debug console logs in `loadBoardAccess`
 
-In the `loadBoardAccess` function (line 132), filter `boardConfigs` to only include boards where `target_audience` is `'clients'` or `'both'`:
+**Enhancement 1 — Team-only boards section:**
+- Compute `teamOnlyBoards` from `boardConfigs` where `target_audience === 'team'` and `is_active === true`
+- Render a "Other Boards (Team only)" section below the existing board list
+- Each item shows board name + "+ Make available" button
+- Button calls a new `handleMakeAvailable(boardId)` function that:
+  1. Updates `board_configs` set `target_audience = 'both'` via direct Supabase call (simpler than going through the full `updateConfig` which also handles member mappings)
+  2. Shows success toast
+  3. Resets `boardsLoaded` to false to re-trigger `loadBoardAccess` (the board now appears in the client-relevant list)
+  4. Invalidates the board configs query
 
-```typescript
-const clientBoards = boardConfigs.filter(
-  (config) => config.target_audience === 'clients' || config.target_audience === 'both'
-);
+**Enhancement 2 — Link to boards page:**
+- Add a small text block below the boards sections: "Don't see the board you need?" with a link to `/boards`
+- Import `Link` from `react-router-dom`
+
+**Import additions:**
+- `Link` from `react-router-dom`
+- `ExternalLink` icon is already imported (can reuse, or use `Plus` for the button)
+
+### Layout of Boards Tab (after changes)
+
+```text
+Available Boards for Clients
++------------------------------------------+
+| [x] Tasks                                |
+|     Filter by Name: [______________]     |
++------------------------------------------+
+| (or "No boards configured for clients")  |
+
+Other Boards (Team only)
++------------------------------------------+
+| Deliverables - Luxe Perfume Co.          |
+|                    [+ Make available]     |
+| Deliverables - FitFlow Coaching          |
+|                    [+ Make available]     |
++------------------------------------------+
+(hidden if no team-only boards exist)
+
+Don't see the board you need? Configure a new board ->
+
+                            [Save Board Access]
 ```
-
-Then map over `clientBoards` instead of `boardConfigs`.
-
-**Change 2 — Fix the empty state check:**
-
-Update the empty state condition (line 411) to check against client-relevant boards, not all `boardConfigs`:
-
-```typescript
-// Before:
-boardConfigs.length === 0
-
-// After: compute clientRelevantBoards and check that
-clientRelevantBoards.length === 0
-```
-
-With appropriate messaging: "No boards configured for client access yet. Configure a board with target audience 'Clients' or 'Both' first."
-
-**Change 3 — Stabilize the reload effect:**
-
-Replace the fragile `boards.length === 0` guard with a ref-based approach that tracks whether board access has been successfully loaded for the current client:
-
-```typescript
-const [boardsLoaded, setBoardsLoaded] = useState(false);
-
-// Reset when dialog opens or client changes
-useEffect(() => {
-  if (open) setBoardsLoaded(false);
-}, [client?.id, open]);
-
-// Re-load when boardConfigs become available
-useEffect(() => {
-  if (open && boardConfigs.length > 0 && !boardsLoaded && !loadingAccess) {
-    loadBoardAccess();
-  }
-}, [boardConfigs, open, boardsLoaded, loadingAccess]);
-```
-
-And set `setBoardsLoaded(true)` at the end of a successful `loadBoardAccess`.
-
-**Change 4 — Add filter column info per board:**
-
-For each board card, if the board has no `filter_column_id` configured, show "Client will see all items on this board" instead of the filter input. This uses the `filter_column_id` and `filter_column_name` fields already available on the board config:
-
-```typescript
-{board.selected && (
-  board.hasFilterColumn ? (
-    <div>
-      <Label>Filter by {board.filterColumnName}</Label>
-      <Input ... />
-    </div>
-  ) : (
-    <p className="text-xs text-muted-foreground italic">
-      Client will see all items on this board
-    </p>
-  )
-)}
-```
-
-This requires extending the `BoardSelection` interface to include `hasFilterColumn` and `filterColumnName`.
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/components/clients/EditClientDialog.tsx` | Filter by target_audience, fix reload race condition, add filter column info |
+| `src/hooks/useBoardConfigs.ts` | Add `target_audience` to `UpdateConfigInput` and `updateConfig` handler |
+| `src/components/clients/EditClientDialog.tsx` | Fix pre-selection bug, add team-only boards section, add link to /boards |
 
 ## What Does NOT Change
 
-- Details tab, Security tab functionality
+- Details tab, Security tab
+- Save logic for client_board_access (already works)
 - useClients hook
-- useBoardConfigs hook
-- Client page layout
-- Board config save logic
+- Board config creation flow
+- Member-related functionality
