@@ -239,6 +239,34 @@ export function AppSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
+
+        {/* Ügyfél Demó Section - owner only */}
+        {isOwner && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="px-3 text-xs font-medium text-sidebar-foreground/60">
+              Ügyfél Demó
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild tooltip="Demo Dashboard">
+                    <NavLink
+                      to="/demo-dashboard"
+                      className="flex items-center gap-3 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      activeClassName="bg-sidebar-accent text-primary font-medium"
+                    >
+                      <LayoutDashboard className="h-5 w-5 shrink-0" />
+                      <span>Demo Dashboard</span>
+                      <span className="ml-auto bg-purple-100 text-purple-700 text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none">
+                        DEMO
+                      </span>
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-2">

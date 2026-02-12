@@ -23,6 +23,7 @@ import OAuthCallback from "./pages/OAuthCallback";
 import BoardViews from "./pages/BoardViews";
 import CustomViewPage from "./pages/CustomViewPage";
 import Settings from "./pages/Settings";
+import DemoDashboard from "./pages/DemoDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -171,6 +172,18 @@ const App = () => (
                   <RequireOrganization>
                     <AppLayout pageTitle="Custom View">
                       <CustomViewPage />
+                    </AppLayout>
+                  </RequireOrganization>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/demo-dashboard"
+              element={
+                <ProtectedRoute>
+                  <RequireOrganization>
+                    <AppLayout pageTitle="Demo Dashboard">
+                      <DemoDashboard />
                     </AppLayout>
                   </RequireOrganization>
                 </ProtectedRoute>
