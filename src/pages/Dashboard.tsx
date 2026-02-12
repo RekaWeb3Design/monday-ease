@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -137,6 +138,30 @@ function getAudienceLabel(audience: string | null) {
     default:
       return "Team";
   }
+}
+
+// Count-up animation hook
+function useCountUp(target: number, duration = 600) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (target === 0) { setCount(0); return; }
+    const steps = Math.min(target, 20);
+    const stepDuration = duration / steps;
+    let current = 0;
+    const timer = setInterval(() => {
+      current++;
+      setCount(Math.round((current / steps) * target));
+      if (current >= steps) clearInterval(timer);
+    }, stepDuration);
+    return () => clearInterval(timer);
+  }, [target, duration]);
+  return count;
+}
+
+function AnimatedStat({ value, isLoading }: { value: number; isLoading: boolean }) {
+  const animated = useCountUp(isLoading ? 0 : value);
+  if (isLoading) return <Skeleton className="h-10 w-16" />;
+  return <div className="text-4xl font-extrabold">{animated}</div>;
 }
 
 export default function Dashboard() {
@@ -288,9 +313,9 @@ export default function Dashboard() {
       )}
 
       {/* Enhanced Stats grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in">
         {stats.map((stat) => (
-          <Card key={stat.title} className={`bg-gradient-to-br ${stat.gradient} border`}>
+          <Card key={stat.title} className={`bg-gradient-to-br ${stat.gradient} border hover:shadow-md hover:translate-y-[-2px] transition-all duration-200`}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 {stat.title}
@@ -300,11 +325,7 @@ export default function Dashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              {stat.isLoading ? (
-                <Skeleton className="h-9 w-16" />
-              ) : (
-                <div className="text-3xl font-bold">{stat.value}</div>
-              )}
+              <AnimatedStat value={stat.value} isLoading={stat.isLoading} />
               <p className="text-xs text-muted-foreground mt-1">{stat.description}</p>
             </CardContent>
           </Card>
@@ -312,7 +333,7 @@ export default function Dashboard() {
       </div>
 
       {/* Team Overview + Board Summary row */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 animate-fade-in" style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}>
         {/* Team Overview */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
@@ -320,9 +341,9 @@ export default function Dashboard() {
               <Users className="h-5 w-5 text-muted-foreground" />
               Team Overview
             </CardTitle>
-            <Button variant="ghost" size="sm" asChild>
+            <Button variant="ghost" size="sm" asChild className="group">
               <Link to="/organization" className="text-xs text-muted-foreground">
-                View all <ArrowRight className="ml-1 h-3 w-3" />
+                View all <ArrowRight className="ml-1 h-3 w-3 group-hover:translate-x-1 transition-transform" />
               </Link>
             </Button>
           </CardHeader>
@@ -354,7 +375,7 @@ export default function Dashboard() {
                   return (
                     <div
                       key={member.id}
-                      className="flex items-center justify-between rounded-lg border p-2.5"
+                      className="flex items-center justify-between rounded-lg border p-2.5 hover:bg-muted/50 transition-colors"
                     >
                       <div className="flex items-center gap-3">
                         <Avatar className="h-8 w-8">
@@ -417,9 +438,9 @@ export default function Dashboard() {
               <LayoutDashboard className="h-5 w-5 text-muted-foreground" />
               Your Boards
             </CardTitle>
-            <Button variant="ghost" size="sm" asChild>
+            <Button variant="ghost" size="sm" asChild className="group">
               <Link to="/boards" className="text-xs text-muted-foreground">
-                View all <ArrowRight className="ml-1 h-3 w-3" />
+                View all <ArrowRight className="ml-1 h-3 w-3 group-hover:translate-x-1 transition-transform" />
               </Link>
             </Button>
           </CardHeader>
@@ -447,7 +468,7 @@ export default function Dashboard() {
                   return (
                     <div
                       key={board.id}
-                      className="rounded-lg border p-2.5"
+                      className="rounded-lg border p-2.5 hover:bg-muted/50 transition-colors"
                     >
                       <p className="text-sm font-medium truncate">{board.board_name}</p>
                       <div className="flex items-center gap-2 mt-1">
@@ -479,7 +500,7 @@ export default function Dashboard() {
       </div>
 
       {/* Clients + Quick Actions row */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 animate-fade-in" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
         {/* Your Clients */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
@@ -487,9 +508,9 @@ export default function Dashboard() {
               <Building2 className="h-5 w-5 text-muted-foreground" />
               Your Clients
             </CardTitle>
-            <Button variant="ghost" size="sm" asChild>
+            <Button variant="ghost" size="sm" asChild className="group">
               <Link to="/clients" className="text-xs text-muted-foreground">
-                Manage <ArrowRight className="ml-1 h-3 w-3" />
+                Manage <ArrowRight className="ml-1 h-3 w-3 group-hover:translate-x-1 transition-transform" />
               </Link>
             </Button>
           </CardHeader>
@@ -512,7 +533,7 @@ export default function Dashboard() {
                 {clients.slice(0, 3).map((client) => (
                   <div
                     key={client.id}
-                    className="flex items-center justify-between rounded-lg border p-2.5"
+                    className="flex items-center justify-between rounded-lg border p-2.5 hover:bg-muted/50 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
@@ -555,9 +576,9 @@ export default function Dashboard() {
                 <Link
                   key={action.to}
                   to={action.to}
-                  className="flex items-center gap-3 rounded-lg border p-3 hover:shadow-md hover:scale-[1.02] transition-all cursor-pointer"
+                  className="group flex items-center gap-3 rounded-lg border p-3 hover:shadow-md hover:scale-[1.02] transition-all duration-200 cursor-pointer"
                 >
-                  <div className={`rounded-lg p-2 ${action.bg}`}>
+                  <div className={`rounded-lg p-2 ${action.bg} group-hover:scale-110 transition-transform`}>
                     <action.icon className={`h-4 w-4 ${action.color}`} />
                   </div>
                   <span className="text-sm font-medium">{action.label}</span>
@@ -569,7 +590,7 @@ export default function Dashboard() {
       </div>
 
       {/* Recent Activity */}
-      <Card>
+      <Card className="animate-fade-in" style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Activity className="h-5 w-5 text-muted-foreground" />
@@ -604,7 +625,7 @@ export default function Dashboard() {
               {recentExecutions.map((exec) => (
                 <div
                   key={exec.id}
-                  className="flex items-center justify-between rounded-lg border p-3"
+                  className="flex items-center justify-between rounded-lg border p-3 hover:bg-muted/50 transition-colors"
                 >
                   <div className="flex items-center gap-3">
                     <StatusIcon status={exec.status} />
