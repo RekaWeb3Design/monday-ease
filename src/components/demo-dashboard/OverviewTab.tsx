@@ -2,11 +2,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAllTasks, STATUS_OPTIONS, getStatusColor } from "@/data/demoData";
 import { StatusBadge } from "./StatusBadge";
 import { AvatarStack } from "./AvatarStack";
+import { useDemoDashboard } from "./DemoDashboardContext";
 import { useMemo } from "react";
 
 export function OverviewTab() {
   const tasks = getAllTasks();
   const today = new Date();
+  const { openTaskDetail } = useDemoDashboard();
 
   const stats = useMemo(() => {
     const done = tasks.filter((t) => t.status === "Kész").length;
@@ -28,6 +30,18 @@ export function OverviewTab() {
       (t) => t.status === "Elakadt" || (new Date(t.due) < today && t.status !== "Kész")
     );
   }, [tasks]);
+
+  // Donut chart conic gradient
+  const donutGradient = useMemo(() => {
+    let cumulative = 0;
+    const stops: string[] = [];
+    for (const s of statusCounts) {
+      const pct = (s.count / tasks.length) * 100;
+      stops.push(`${s.color} ${cumulative}% ${cumulative + pct}%`);
+      cumulative += pct;
+    }
+    return `conic-gradient(${stops.join(", ")})`;
+  }, [statusCounts, tasks.length]);
 
   const statCards = [
     { label: "Összes feladat", count: tasks.length, icon: "📋", sub: "4 csoport", accent: "hsl(var(--muted-foreground))" },
@@ -55,36 +69,65 @@ export function OverviewTab() {
         ))}
       </div>
 
-      {/* Row 2: Status distribution */}
-      <Card className="rounded-xl shadow-sm border-gray-100">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Státusz eloszlás</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex h-10 rounded-lg overflow-hidden">
-            {statusCounts.map((s) => (
+      {/* Row 2: Status distribution + Donut chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Left: bar */}
+        <Card className="rounded-xl shadow-sm border-gray-100">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Státusz eloszlás</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex h-10 rounded-lg overflow-hidden">
+              {statusCounts.map((s) => (
+                <div
+                  key={s.label}
+                  className="flex items-center justify-center text-white text-xs font-medium transition-all"
+                  style={{
+                    backgroundColor: s.color,
+                    width: `${(s.count / tasks.length) * 100}%`,
+                  }}
+                >
+                  {s.count}
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-4">
+              {statusCounts.map((s) => (
+                <div key={s.label} className="flex items-center gap-1.5 text-sm">
+                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: s.color }} />
+                  {s.label} ({s.count})
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Right: donut chart */}
+        <Card className="rounded-xl shadow-sm border-gray-100">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Státusz megoszlás</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center justify-center py-4">
+            <div className="relative hover:scale-105 transition-transform">
               <div
-                key={s.label}
-                className="flex items-center justify-center text-white text-xs font-medium transition-all"
+                className="rounded-full"
                 style={{
-                  backgroundColor: s.color,
-                  width: `${(s.count / tasks.length) * 100}%`,
+                  width: 180,
+                  height: 180,
+                  background: donutGradient,
                 }}
-              >
-                {s.count}
+              />
+              {/* Donut hole */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-[108px] h-[108px] rounded-full bg-white flex flex-col items-center justify-center">
+                  <span className="text-3xl font-bold text-foreground">{tasks.length}</span>
+                  <span className="text-xs text-muted-foreground">feladat</span>
+                </div>
               </div>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-4">
-            {statusCounts.map((s) => (
-              <div key={s.label} className="flex items-center gap-1.5 text-sm">
-                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: s.color }} />
-                {s.label} ({s.count})
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Row 3: Attention items */}
       {attentionTasks.length > 0 && (
@@ -96,7 +139,8 @@ export function OverviewTab() {
             {attentionTasks.map((task) => (
               <div
                 key={task.name}
-                className="flex items-center justify-between gap-3 bg-red-50 border border-red-100 rounded-lg p-3"
+                className="flex items-center justify-between gap-3 bg-red-50 border border-red-100 rounded-lg p-3 cursor-pointer hover:bg-red-100/50 transition-colors"
+                onClick={() => openTaskDetail(task)}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <StatusBadge status={task.status} />
