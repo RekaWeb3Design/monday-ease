@@ -1,6 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
+import { OverviewTab } from "@/components/demo-dashboard/OverviewTab";
+import { TasksTab } from "@/components/demo-dashboard/TasksTab";
 export default function DemoDashboard() {
   return (
     <div className="space-y-6">
@@ -38,25 +39,11 @@ export default function DemoDashboard() {
           </div>
 
           <TabsContent value="attekintes">
-            <Card>
-              <CardHeader>
-                <CardTitle>Áttekintés</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">Hamarosan...</p>
-              </CardContent>
-            </Card>
+            <OverviewTab />
           </TabsContent>
 
           <TabsContent value="feladatok">
-            <Card>
-              <CardHeader>
-                <CardTitle>Feladatok</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">Hamarosan...</p>
-              </CardContent>
-            </Card>
+            <TasksTab />
           </TabsContent>
 
           <TabsContent value="csapat">
