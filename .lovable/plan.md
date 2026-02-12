@@ -1,52 +1,132 @@
 
 
-# Implement Csapat (Team) and Idővonal (Timeline) Tabs
+# Enhance Demo Dashboard: Kanban, Task Detail Panel, and Donut Chart
 
 ## Overview
 
-Create two new tab components and update `DemoDashboard.tsx` to replace the remaining placeholders. Also add a footer to the page.
+Add three major features to the Demo Dashboard: a Kanban view toggle on the Tasks tab, a task detail side panel accessible from all tabs, and a donut chart on the Overview tab. This involves creating 2 new files and modifying 5 existing files.
 
 ## New Files
 
-### 1. `src/components/demo-dashboard/TeamTab.tsx`
+### 1. `src/components/demo-dashboard/DemoDashboardContext.tsx`
 
-Responsive grid (`grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5`) of 5 member cards.
+A React Context providing shared state for the task detail panel:
+- `selectedTask: DemoTask | null`
+- `isDetailOpen: boolean`
+- `openTaskDetail(task: DemoTask): void`
+- `closeTaskDetail(): void`
 
-Each card iterates over `TEAM_MEMBERS` and computes tasks from `getAllTasks()` where the member name is in `task.assignees`.
+The provider wraps the entire DemoDashboard page content.
 
-**Card structure:**
-- `bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow overflow-hidden`
-- Top border: `border-t-[3px]` with member color via inline style
-- **Header** (`p-5 pb-4`): avatar circle (w-12 h-12, member color bg, white initials text-lg font-bold) + name (font-bold) + role (text-xs text-gray-500)
-- **Stats row** (`px-5 pb-3 grid grid-cols-4 gap-2`): four mini stat boxes
-  - "Osszes" -- total count, bg-gray-50
-  - "Kesz" -- status=Kesz count, bg-green-50, green text
-  - "Aktiv" -- status=Folyamatban count, bg-yellow-50, yellow text
-  - "Figyel!" -- stuck + overdue (due < today AND status != Kesz) count, bg-red-50, red text
-- **Task list** (`px-5 pb-5`): `max-h-48 overflow-y-auto space-y-1.5`, each task as `bg-gray-50 rounded-lg p-2 text-xs flex justify-between items-center` with truncated name + StatusBadge
+### 2. `src/components/demo-dashboard/TaskDetailPanel.tsx`
 
-### 2. `src/components/demo-dashboard/TimelineTab.tsx`
+A shadcn `Sheet` (side="right") that opens when any task is clicked. Width ~420px via className on `SheetContent`.
 
-All tasks from `getAllTasks()` sorted by `due` date ascending.
+**Panel sections:**
 
-Single white card (`rounded-xl shadow-sm border p-6`). Each task renders a row with 3 columns:
+**Header**: Task name as `SheetTitle`, category badge below
 
-1. **Date column** (w-24, text-right): show date only if different from previous task's date. "MA" in blue bold if today, red if overdue, gray otherwise
-2. **Timeline column** (center): small circle (w-3 h-3 rounded-full border-2) -- green filled if done, red border if overdue, blue border otherwise. Vertical line (w-0.5 bg-gray-200) between items (not after last)
-3. **Content column** (flex-1): rounded-lg pill with bg-red-50 if overdue, bg-green-50 if done, bg-gray-50 otherwise. Task name left, AvatarStack + StatusBadge + PriorityBadge right
+**Section 1 -- "Reszletek"**:
+- StatusBadge and PriorityBadge (displayed larger)
+- Due date: formatted with "Lejart!" in red if overdue, or "X nap van hatra" in green if upcoming
+- Felelosok: vertical list of assignees with colored avatar circles and full names
 
-### 3. Modified: `src/pages/DemoDashboard.tsx`
+**Section 2 -- "Haladas"**:
+- Larger ProgressBar (h-3)
+- "X/Y alfeladat kesz" text
+- Fake subtask checklist generated from a helper function based on task name and subtask counts. Done items get line-through + green checkmark, remaining get gray checkbox
 
-- Import `TeamTab` and `TimelineTab`
-- Replace Csapat placeholder (lines 49-58) with `<TeamTab />`
-- Replace Idovonal placeholder (lines 60-69) with `<TimelineTab />`
-- Add footer after the Tabs wrapper div: `<p className="text-[10px] text-gray-400 text-center pt-4">MondayEase Smart Dashboard — Powered by Monday.com adatok | Utolso szinkron: 2026.02.12 15:30</p>`
+**Section 3 -- "Aktivitas"** (fake timeline):
+- 3-4 hardcoded activity entries with small avatars, descriptive text, and relative timestamps
+- Connected by a vertical line
+
+## Modified Files
+
+### 3. `src/pages/DemoDashboard.tsx`
+
+- Import and wrap content with `DemoDashboardProvider`
+- Import `TaskDetailPanel` and render it inside the provider (once, at the bottom)
+
+### 4. `src/components/demo-dashboard/TasksTab.tsx`
+
+**View toggle**: Add a toggle button group (List / Columns3 icons from lucide-react) to the right of the existing filter bar. State: `viewMode: "table" | "kanban"`.
+
+**Kanban view** (when viewMode === "kanban"):
+- `flex flex-row gap-4 overflow-x-auto pb-4`
+- One column per status (filtered to only statuses with matching tasks)
+- Column: `min-w-[280px] w-[280px]`, header with status color at 15% opacity, bold name + count badge
+- Column body: `bg-gray-50 rounded-b-lg p-3 space-y-3 min-h-[200px]`
+- Cards: white, rounded-lg, shadow-sm, showing task name (max 2 lines), category tag, AvatarStack + PriorityBadge, due date + small ProgressBar (w-20)
+- Each card and table row calls `openTaskDetail(task)` on click
+
+Search and status filters apply to both views. In kanban, status filter shows only that column.
+
+### 5. `src/components/demo-dashboard/OverviewTab.tsx`
+
+**Row 2 layout change**: `grid grid-cols-1 lg:grid-cols-2 gap-4`
+- Left: existing "Statusz eloszlas" horizontal bar card (unchanged)
+- Right: new "Statusz megoszlas" card with a CSS conic-gradient donut chart
+  - 180x180px circle with `conic-gradient()` computed from status proportions
+  - Inner white circle for the donut hole
+  - Center text: total count (large bold) + "feladat" below
+  - Hover: slight scale effect on the container
+
+**Attention items**: Each item calls `openTaskDetail(task)` on click with `cursor-pointer`
+
+### 6. `src/components/demo-dashboard/TeamTab.tsx`
+
+- Import and use `useDemoDashboard` context
+- Each task item in the scrollable list gets `cursor-pointer` and `onClick={() => openTaskDetail(task)}`
+
+### 7. `src/components/demo-dashboard/TimelineTab.tsx`
+
+- Import and use `useDemoDashboard` context
+- Each content pill gets `cursor-pointer` and `onClick={() => openTaskDetail(task)}`
+
+## Technical Details
+
+### Subtask name generation (in TaskDetailPanel)
+
+A helper function that generates realistic subtask names based on the task category and name:
+
+```text
+const SUBTASK_TEMPLATES = {
+  Backend: ["Endpoint tervezes", "Auth implementalas", "Adatbazis migracio", "Unit tesztek", "Code review", "Dokumentacio"],
+  Frontend: ["UI design", "Komponens fejlesztes", "Reszponziv nezet", "Teszteles", "Akadalymentes..."],
+  QA: ["Teszt terv", "Teszt esetek", "Automatizalas", "Regresszio", "Jelentes", ...],
+  ...
+}
+```
+
+Pick `subtasksTotal` names, mark first `subtasksDone` as completed.
+
+### Donut chart (CSS conic-gradient)
+
+```text
+background: conic-gradient(
+  #00CA72 0deg Xdeg,    // Kesz
+  #FDAB3D Xdeg Ydeg,    // Folyamatban
+  ...
+);
+```
+
+Computed dynamically from status counts. Inner circle is a centered white div (60% of outer size) creating the donut hole.
+
+### View toggle styling
+
+Active button: `bg-primary text-white` (uses the #01cb72 green primary)
+Inactive button: `bg-gray-100 text-gray-600`
+Grouped together with `rounded-lg overflow-hidden flex`
 
 ## File Summary
 
 | File | Action |
 |------|--------|
-| `src/components/demo-dashboard/TeamTab.tsx` | Create |
-| `src/components/demo-dashboard/TimelineTab.tsx` | Create |
-| `src/pages/DemoDashboard.tsx` | Modify -- swap placeholders, add footer |
+| `src/components/demo-dashboard/DemoDashboardContext.tsx` | Create |
+| `src/components/demo-dashboard/TaskDetailPanel.tsx` | Create |
+| `src/pages/DemoDashboard.tsx` | Modify -- wrap with provider, add panel |
+| `src/components/demo-dashboard/TasksTab.tsx` | Modify -- add kanban view + toggle + click handler |
+| `src/components/demo-dashboard/OverviewTab.tsx` | Modify -- add donut chart + click handlers |
+| `src/components/demo-dashboard/TeamTab.tsx` | Modify -- add click handlers |
+| `src/components/demo-dashboard/TimelineTab.tsx` | Modify -- add click handlers |
 
