@@ -4,18 +4,23 @@ import { useMemberTasks } from "@/hooks/useMemberTasks";
 import { TaskStats } from "@/components/member/TaskStats";
 import { TaskCard } from "@/components/member/TaskCard";
 import { TaskListView } from "@/components/member/TaskListView";
+import { TaskChartsView } from "@/components/member/TaskChartsView";
+import { TaskKanbanView } from "@/components/member/TaskKanbanView";
+import { TaskTimelineView } from "@/components/member/TaskTimelineView";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, RefreshCw, ClipboardList, LayoutList, LayoutGrid, List, Search, X, ChevronUp, ChevronDown } from "lucide-react";
+import { Loader2, RefreshCw, ClipboardList, LayoutList, LayoutGrid, List, Search, X, ChevronUp, ChevronDown, BarChart3, Columns3, CalendarDays } from "lucide-react";
+
+type ViewMode = "grid" | "list" | "charts" | "kanban" | "timeline";
 
 export default function MemberDashboard() {
   const { profile } = useAuth();
   const { tasks, isLoading, error, refetch } = useMemberTasks();
   const [activeTab, setActiveTab] = useState<string>("all");
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
@@ -206,24 +211,23 @@ export default function MemberDashboard() {
           <ToggleGroup 
             type="single" 
             value={viewMode} 
-            onValueChange={(v) => v && setViewMode(v as "grid" | "list")}
+            onValueChange={(v) => v && setViewMode(v as ViewMode)}
             className="border rounded-md"
           >
-            <ToggleGroupItem 
-              value="grid" 
-              aria-label="Grid view" 
-              size="sm"
-              className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-            >
+            <ToggleGroupItem value="grid" aria-label="Grid view" size="sm" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
               <LayoutGrid className="h-4 w-4" />
             </ToggleGroupItem>
-            <ToggleGroupItem 
-              value="list" 
-              aria-label="List view" 
-              size="sm"
-              className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-            >
+            <ToggleGroupItem value="list" aria-label="List view" size="sm" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
               <List className="h-4 w-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="charts" aria-label="Charts view" size="sm" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+              <BarChart3 className="h-4 w-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="kanban" aria-label="Kanban view" size="sm" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+              <Columns3 className="h-4 w-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="timeline" aria-label="Timeline view" size="sm" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+              <CalendarDays className="h-4 w-4" />
             </ToggleGroupItem>
           </ToggleGroup>
           <Button onClick={refetch} variant="outline" size="sm">
@@ -331,8 +335,8 @@ export default function MemberDashboard() {
         )}
       </div>
 
-      {/* Task view - uses sorted tasks */}
-      {viewMode === "grid" ? (
+      {/* Task view */}
+      {viewMode === "grid" && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {sortedTasks.map((task) => (
             <TaskCard 
@@ -342,7 +346,9 @@ export default function MemberDashboard() {
             />
           ))}
         </div>
-      ) : (
+      )}
+
+      {viewMode === "list" && (
         <TaskListView 
           tasks={sortedTasks} 
           showBoardName={activeTab === "all"}
@@ -351,6 +357,18 @@ export default function MemberDashboard() {
           sortDirection={sortDirection}
           onSort={handleSort}
         />
+      )}
+
+      {viewMode === "charts" && (
+        <TaskChartsView tasks={sortedTasks} />
+      )}
+
+      {viewMode === "kanban" && (
+        <TaskKanbanView tasks={sortedTasks} showBoardName={activeTab === "all"} />
+      )}
+
+      {viewMode === "timeline" && (
+        <TaskTimelineView tasks={sortedTasks} showBoardName={activeTab === "all"} />
       )}
     </div>
   );
