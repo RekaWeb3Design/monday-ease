@@ -8,6 +8,8 @@ interface UseDisconnectIntegrationReturn {
   disconnect: (integrationType: string) => Promise<boolean>;
   /** Disconnect a specific integration by its row ID */
   disconnectById: (integrationId: string) => Promise<boolean>;
+  /** Permanently delete an integration row (board configs are preserved as orphaned) */
+  deleteIntegration: (integrationId: string) => Promise<boolean>;
   isDisconnecting: boolean;
 }
 
@@ -78,7 +80,7 @@ export function useDisconnectIntegration(): UseDisconnectIntegrationReturn {
     try {
       const { error } = await supabase
         .from("user_integrations")
-        .delete()
+        .update({ status: "disconnected" })
         .eq("id", integrationId)
         .eq("user_id", user.id);
 
@@ -110,5 +112,52 @@ export function useDisconnectIntegration(): UseDisconnectIntegrationReturn {
     }
   };
 
-  return { disconnect, disconnectById, isDisconnecting };
+  const deleteIntegration = async (integrationId: string): Promise<boolean> => {
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "You must be logged in to remove integrations",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    setIsDisconnecting(true);
+
+    try {
+      const { error } = await supabase
+        .from("user_integrations")
+        .delete()
+        .eq("id", integrationId)
+        .eq("user_id", user.id);
+
+      if (error) {
+        console.error("Error deleting integration:", error);
+        toast({
+          title: "Error",
+          description: "Failed to remove integration",
+          variant: "destructive",
+        });
+        return false;
+      }
+
+      toast({
+        title: "Removed",
+        description: "Monday.com connection has been removed",
+      });
+      return true;
+    } catch (err) {
+      console.error("Unexpected error:", err);
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred",
+        variant: "destructive",
+      });
+      return false;
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  return { disconnect, disconnectById, deleteIntegration, isDisconnecting };
 }
