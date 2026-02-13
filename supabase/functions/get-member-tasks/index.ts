@@ -18,6 +18,8 @@ interface MondayTask {
   column_values: MondayColumnValue[];
   created_at: string;
   updated_at: string;
+  monday_account_id?: string;
+  account_name?: string;
 }
 
 interface BoardAccessConfig {
@@ -29,6 +31,7 @@ interface BoardAccessConfig {
   visible_columns: string[];
   organization_id: string;
   monday_account_id: string | null;
+  workspace_name: string | null;
 }
 
 /**
@@ -208,7 +211,8 @@ Deno.serve(async (req: Request) => {
           visible_columns,
           organization_id,
           is_active,
-          monday_account_id
+          monday_account_id,
+          workspace_name
         )
       `)
       .eq("member_id", targetMembershipId);
@@ -242,6 +246,7 @@ Deno.serve(async (req: Request) => {
         visible_columns: config.visible_columns || [],
         organization_id: config.organization_id,
         monday_account_id: config.monday_account_id || null,
+        workspace_name: config.workspace_name || null,
       };
     });
 
@@ -366,6 +371,8 @@ Deno.serve(async (req: Request) => {
               column_values: columnValues,
               created_at: item.created_at,
               updated_at: item.updated_at,
+              monday_account_id: config.monday_account_id || undefined,
+              account_name: config.workspace_name || undefined,
             });
           }
         } catch (boardError) {

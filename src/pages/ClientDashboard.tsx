@@ -359,6 +359,13 @@ export default function ClientDashboard() {
   const boards = extractBoards(dashboardData);
   const hasBoards = boards.length > 0;
 
+  // Group boards by account (if account info is available)
+  const accountIds = useMemo(() => {
+    const ids = new Set(boards.map(b => b.monday_account_id || "__default__"));
+    return Array.from(ids);
+  }, [boards]);
+  const hasMultipleAccounts = accountIds.length > 1 && accountIds.some(id => id !== "__default__");
+
   // Dashboard state
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -421,20 +428,53 @@ export default function ClientDashboard() {
             onValueChange={handleTabChange}
           >
             <div className="border-b border-border mb-6">
-              <TabsList className="bg-transparent h-auto p-0 space-x-6">
-                {boards.map((board) => (
-                  <TabsTrigger
-                    key={board?.boardId ?? Math.random()}
-                    value={board?.boardId ?? ""}
-                    className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none 
-                               border-b-2 border-transparent data-[state=active]:border-primary 
-                               rounded-none px-0 pb-3 pt-0
-                               text-muted-foreground hover:text-foreground data-[state=active]:text-foreground 
-                               data-[state=active]:font-semibold font-medium text-sm"
-                  >
-                    {board?.boardName ?? "Untitled Board"}
-                  </TabsTrigger>
-                ))}
+              <TabsList className="bg-transparent h-auto p-0 space-x-6 flex-wrap">
+                {hasMultipleAccounts ? (
+                  accountIds.map((accountId, accountIndex) => {
+                    const accountBoards = boards.filter(b => (b.monday_account_id || "__default__") === accountId);
+                    const accountName = accountBoards[0]?.account_name;
+                    return (
+                      <div key={accountId} className="flex items-center gap-3">
+                        {accountIndex > 0 && (
+                          <div className="h-4 w-px bg-border" />
+                        )}
+                        {accountName && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1 pb-3">
+                            <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />
+                            {accountName}:
+                          </span>
+                        )}
+                        {accountBoards.map((board) => (
+                          <TabsTrigger
+                            key={board?.boardId ?? Math.random()}
+                            value={board?.boardId ?? ""}
+                            className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none
+                                       border-b-2 border-transparent data-[state=active]:border-primary
+                                       rounded-none px-0 pb-3 pt-0
+                                       text-muted-foreground hover:text-foreground data-[state=active]:text-foreground
+                                       data-[state=active]:font-semibold font-medium text-sm"
+                          >
+                            {board?.boardName ?? "Untitled Board"}
+                          </TabsTrigger>
+                        ))}
+                      </div>
+                    );
+                  })
+                ) : (
+                  boards.map((board) => (
+                    <TabsTrigger
+                      key={board?.boardId ?? Math.random()}
+                      value={board?.boardId ?? ""}
+                      className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none
+                                 border-b-2 border-transparent data-[state=active]:border-primary
+                                 rounded-none px-0 pb-3 pt-0
+                                 text-muted-foreground hover:text-foreground data-[state=active]:text-foreground
+                                 data-[state=active]:font-semibold font-medium text-sm"
+                    >
+                      {board?.boardName ?? "Untitled Board"}
+                    </TabsTrigger>
+                  ))
+                )}
               </TabsList>
             </div>
             {boards.map((board) => (
