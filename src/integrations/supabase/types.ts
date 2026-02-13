@@ -358,12 +358,13 @@ export type Database = {
       user_integrations: {
         Row: {
           access_token: string
+          account_name: string | null
           connected_at: string | null
           created_at: string | null
           id: string
           integration_type: string
           last_used_at: string | null
-          monday_account_id: string | null
+          monday_account_id: string
           monday_user_id: string | null
           refresh_token: string | null
           scopes: string[] | null
@@ -375,12 +376,13 @@ export type Database = {
         }
         Insert: {
           access_token: string
+          account_name?: string | null
           connected_at?: string | null
           created_at?: string | null
           id?: string
           integration_type?: string
           last_used_at?: string | null
-          monday_account_id?: string | null
+          monday_account_id: string
           monday_user_id?: string | null
           refresh_token?: string | null
           scopes?: string[] | null
@@ -392,12 +394,13 @@ export type Database = {
         }
         Update: {
           access_token?: string
+          account_name?: string | null
           connected_at?: string | null
           created_at?: string | null
           id?: string
           integration_type?: string
           last_used_at?: string | null
-          monday_account_id?: string | null
+          monday_account_id?: string
           monday_user_id?: string | null
           refresh_token?: string | null
           scopes?: string[] | null
