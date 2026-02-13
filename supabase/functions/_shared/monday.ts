@@ -36,22 +36,34 @@ export async function decryptToken(encryptedData: string, encryptionKey: string)
 
 /**
  * Retrieve and decrypt the Monday.com access token for a given user.
+ * When mondayAccountId is provided, fetches the token for that specific account.
+ * Otherwise, returns the first connected integration (backward compat).
  */
 export async function getDecryptedMondayToken(
   userId: string,
-  adminClient: SupabaseClient
+  adminClient: SupabaseClient,
+  mondayAccountId?: string
 ): Promise<string> {
-  const { data: integration, error } = await adminClient
+  let query = adminClient
     .from("user_integrations")
     .select("access_token")
     .eq("user_id", userId)
     .eq("integration_type", "monday")
-    .eq("status", "connected")
-    .single();
+    .eq("status", "connected");
 
-  if (error || !integration) {
+  if (mondayAccountId) {
+    query = query.eq("monday_account_id", mondayAccountId);
+  }
+
+  const { data: integrations, error } = await query
+    .order("connected_at", { ascending: false })
+    .limit(1);
+
+  if (error || !integrations || integrations.length === 0) {
     throw new MondayIntegrationError("Monday.com integration not configured");
   }
+
+  const integration = integrations[0];
 
   const encryptionKey = Deno.env.get("ENCRYPTION_KEY");
   if (encryptionKey) {
