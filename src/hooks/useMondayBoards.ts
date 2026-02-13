@@ -7,7 +7,7 @@ interface UseMondayBoardsReturn {
   boards: MondayBoard[];
   isLoading: boolean;
   error: string | null;
-  fetchBoards: () => Promise<void>;
+  fetchBoards: (mondayAccountId?: string) => Promise<void>;
 }
 
 export function useMondayBoards(): UseMondayBoardsReturn {
@@ -16,12 +16,13 @@ export function useMondayBoards(): UseMondayBoardsReturn {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const fetchBoards = useCallback(async () => {
+  const fetchBoards = useCallback(async (mondayAccountId?: string) => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const data = await callEdgeFunction<{ boards: MondayBoard[] }>("get-monday-boards");
+      const params = mondayAccountId ? { monday_account_id: mondayAccountId } : undefined;
+      const data = await callEdgeFunction<{ boards: MondayBoard[] }>("get-monday-boards", params);
       setBoards(data.boards || []);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to fetch boards";

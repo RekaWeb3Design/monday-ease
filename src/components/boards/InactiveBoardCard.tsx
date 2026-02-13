@@ -1,5 +1,4 @@
-import { useNavigate } from "react-router-dom";
-import { Filter, Columns, Users, Trash2, ArrowRightLeft } from "lucide-react";
+import { Filter, Columns, Users, Trash2, Unplug } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,16 +21,15 @@ interface InactiveBoardCardProps {
 }
 
 export function InactiveBoardCard({ config, onDelete }: InactiveBoardCardProps) {
-  const navigate = useNavigate();
-
   return (
     <Card className="overflow-hidden border-dashed">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <CardTitle className="text-lg">{config.board_name}</CardTitle>
-            <Badge variant="secondary" className="bg-muted text-muted-foreground">
-              Other Account
+            <Badge variant="secondary" className="bg-red-500/10 text-red-400 border-red-500/20">
+              <Unplug className="mr-1 h-3 w-3" />
+              Disconnected
             </Badge>
           </div>
           <AlertDialog>
@@ -90,15 +88,9 @@ export function InactiveBoardCard({ config, onDelete }: InactiveBoardCardProps) 
           </div>
         </div>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
-          onClick={() => navigate("/integrations")}
-        >
-          <ArrowRightLeft className="h-3.5 w-3.5" />
-          Switch to {config.workspace_name || "this account"}
-        </Button>
+        <p className="text-xs text-muted-foreground italic">
+          Reconnect this account to sync data.
+        </p>
       </CardContent>
     </Card>
   );
