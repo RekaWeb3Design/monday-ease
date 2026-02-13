@@ -1,4 +1,4 @@
-import { Filter, Columns, Users, Trash2, Unplug } from "lucide-react";
+import { Filter, Columns, Users, Trash2, Unplug, MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,10 +27,18 @@ export function InactiveBoardCard({ config, onDelete }: InactiveBoardCardProps) 
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <CardTitle className="text-lg">{config.board_name}</CardTitle>
-            <Badge variant="secondary" className="bg-red-500/10 text-red-400 border-red-500/20">
-              <Unplug className="mr-1 h-3 w-3" />
-              Disconnected
-            </Badge>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="secondary" className="bg-red-500/10 text-red-400 border-red-500/20">
+                <Unplug className="mr-1 h-3 w-3" />
+                Disconnected
+              </Badge>
+              {(config.workspace_name || config.monday_account_id) && (
+                <Badge variant="outline" className="text-xs font-normal text-muted-foreground border-muted">
+                  <MapPin className="mr-1 h-3 w-3" />
+                  {config.workspace_name || config.monday_account_id}
+                </Badge>
+              )}
+            </div>
           </div>
           <AlertDialog>
             <AlertDialogTrigger asChild>

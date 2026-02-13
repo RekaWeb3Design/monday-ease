@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
-import { Lock, LogOut, Loader2, AlertCircle, LayoutDashboard, Search, X, ChevronUp, ChevronDown, LayoutGrid, List, BarChart3, Columns3, CalendarDays } from "lucide-react";
+import { Lock, LogOut, Loader2, AlertCircle, LayoutDashboard, Search, X, ChevronUp, ChevronDown, LayoutGrid, List, BarChart3, Columns3, CalendarDays, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -537,6 +538,7 @@ function BoardTable({
   const columns = board?.columns ?? [];
   const items = board?.items ?? [];
   const boardName = board?.boardName ?? "Untitled Board";
+  const accountName = board?.account_name;
   const hasNameColumn = columns.some((col) => col.id === "name");
 
   const filteredItems = getFilteredItems(items);
@@ -638,7 +640,15 @@ function BoardTable({
     return (
       <Card className="shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold">{boardName}</CardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            <CardTitle className="text-lg font-semibold">{boardName}</CardTitle>
+            {accountName && (
+              <Badge variant="outline" className="text-xs font-normal text-muted-foreground border-muted">
+                <MapPin className="mr-1 h-3 w-3" />
+                {accountName}
+              </Badge>
+            )}
+          </div>
         </CardHeader>
         <SearchBar />
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
@@ -655,7 +665,15 @@ function BoardTable({
     return (
       <Card className="shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold">{boardName}</CardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            <CardTitle className="text-lg font-semibold">{boardName}</CardTitle>
+            {accountName && (
+              <Badge variant="outline" className="text-xs font-normal text-muted-foreground border-muted">
+                <MapPin className="mr-1 h-3 w-3" />
+                {accountName}
+              </Badge>
+            )}
+          </div>
         </CardHeader>
         <SearchBar />
         <CardContent>

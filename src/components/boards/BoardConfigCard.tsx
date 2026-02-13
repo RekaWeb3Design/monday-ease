@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Pencil, Trash2, Users, Columns, Filter, Building2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil, Trash2, Users, Columns, Filter, Building2, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -71,6 +71,12 @@ export function BoardConfigCard({ config, members, onEdit, onDelete }: BoardConf
                 {config.is_active ? "Active" : "Inactive"}
               </Badge>
               {getAudienceBadge()}
+              {(config.workspace_name || config.monday_account_id) && (
+                <Badge variant="outline" className="text-xs font-normal text-muted-foreground border-muted">
+                  <MapPin className="mr-1 h-3 w-3" />
+                  {config.workspace_name || config.monday_account_id}
+                </Badge>
+              )}
             </div>
           </div>
           <div className="flex gap-1">
