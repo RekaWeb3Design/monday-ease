@@ -48,12 +48,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { FilterValueMultiSelect } from "./FilterValueMultiSelect";
-import type { MondayBoard } from "@/types";
+import type { MondayBoard, UserIntegration } from "@/types";
 
 interface AddBoardDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  connectedIntegrations?: UserIntegration[];
 }
 
 interface ClientOption {
@@ -62,7 +63,7 @@ interface ClientOption {
   contact_name: string;
 }
 
-export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialogProps) {
+export function AddBoardDialog({ open, onOpenChange, onSuccess, connectedIntegrations = [] }: AddBoardDialogProps) {
   const { boards, isLoading: boardsLoading, fetchBoards } = useMondayBoards();
   const { createConfig } = useBoardConfigs();
   const { members } = useOrganizationMembers();
@@ -72,6 +73,11 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
   // Step state - index-based navigation
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Account selection (new step for multi-account)
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
+  const needsAccountSelection = connectedIntegrations.length > 1;
+  const selectedIntegration = connectedIntegrations.find(i => i.monday_account_id === selectedAccountId) || null;
 
   // Step 1: Selected board
   const [selectedBoardId, setSelectedBoardId] = useState<string>("");
@@ -99,13 +105,15 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
   const [columnValues, setColumnValues] = useState<{ value: string; color?: string }[]>([]);
   const [columnValuesLoading, setColumnValuesLoading] = useState(false);
 
-  // Dynamic steps based on audience selection
+  // Dynamic steps based on audience selection and multi-account
   const steps = useMemo(() => {
-    const base: string[] = ['select-board', 'audience', 'columns'];
+    const base: string[] = [];
+    if (needsAccountSelection) base.push('select-account');
+    base.push('select-board', 'audience', 'columns');
     if (targetAudience === 'team' || targetAudience === 'both') base.push('team-members');
     if (targetAudience === 'clients' || targetAudience === 'both') base.push('clients');
     return base;
-  }, [targetAudience]);
+  }, [targetAudience, needsAccountSelection]);
 
   const currentStep = steps[currentStepIndex];
   const totalSteps = steps.length;
@@ -114,6 +122,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
   // Step label helper
   const getStepLabel = (step: string) => {
     switch (step) {
+      case 'select-account': return 'Select a Monday.com account';
       case 'select-board': return 'Select a Monday.com board';
       case 'audience': return 'Who is this board for?';
       case 'columns': return 'Configure columns';
@@ -138,12 +147,19 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
            id.includes('person') || id.includes('people');
   }, [selectedFilterColumn, filterColumnId]);
 
-  // Fetch boards when dialog opens
+  // Auto-select account when only 1 connected integration
   useEffect(() => {
-    if (open && boards.length === 0) {
-      fetchBoards();
+    if (open && connectedIntegrations.length === 1 && !selectedAccountId) {
+      setSelectedAccountId(connectedIntegrations[0].monday_account_id);
     }
-  }, [open, boards.length, fetchBoards]);
+  }, [open, connectedIntegrations, selectedAccountId]);
+
+  // Fetch boards when account is selected (or dialog opens with single account)
+  useEffect(() => {
+    if (open && selectedAccountId) {
+      fetchBoards(selectedAccountId);
+    }
+  }, [open, selectedAccountId, fetchBoards]);
 
   // Fetch clients when dialog opens
   useEffect(() => {
@@ -229,6 +245,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
   // Reset state when dialog closes (watch internalOpen, not parent open)
   const resetFormState = () => {
     setCurrentStepIndex(0);
+    setSelectedAccountId("");
     setSelectedBoardId("");
     setSelectedBoard(null);
     setTargetAudience('both');
@@ -318,6 +335,8 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
       target_audience: targetAudience,
       memberMappings: targetAudience === 'clients' ? [] : memberMappingsList,
       clientMappings: targetAudience === 'team' ? [] : clientMappingsList,
+      monday_account_id: selectedAccountId || null,
+      workspace_name: selectedIntegration?.account_name || selectedIntegration?.workspace_name || null,
     });
 
     setIsSubmitting(false);
@@ -416,7 +435,41 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
         </div>
 
         <div className="min-h-[300px]">
-          {/* Step 1: Select Board */}
+          {/* Account Selection Step */}
+          {currentStep === 'select-account' && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Which Monday.com account?</Label>
+                <div className="space-y-2">
+                  {connectedIntegrations.map((integration) => (
+                    <div
+                      key={integration.id}
+                      className={cn(
+                        "flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors",
+                        selectedAccountId === integration.monday_account_id && "border-primary bg-primary/5"
+                      )}
+                      onClick={() => setSelectedAccountId(integration.monday_account_id)}
+                    >
+                      <div className="h-2.5 w-2.5 rounded-full bg-green-500 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm">
+                          {integration.account_name || integration.workspace_name || integration.monday_account_id}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Account ID: {integration.monday_account_id}
+                        </div>
+                      </div>
+                      {selectedAccountId === integration.monday_account_id && (
+                        <Check className="h-4 w-4 text-primary shrink-0" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Select Board Step */}
           {currentStep === 'select-board' && (
             <div className="space-y-4">
               {boardsLoading ? (
@@ -805,6 +858,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess }: AddBoardDialog
               <Button
                 onClick={() => setCurrentStepIndex(i => i + 1)}
                 disabled={
+                  (currentStep === 'select-account' && !selectedAccountId) ||
                   (currentStep === 'select-board' && !selectedBoardId) ||
                   (currentStep === 'audience' && !targetAudience)
                 }
