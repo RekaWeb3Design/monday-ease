@@ -53,9 +53,11 @@ Deno.serve(async (req: Request) => {
     }
 
     // Get Monday token (optional - some workflows may not need it)
+    // Use monday_account_id from inputParams if provided
+    const mondayAccountId = inputParams?.monday_account_id || undefined;
     let mondayToken: string | null = null;
     try {
-      mondayToken = await getDecryptedMondayToken(org.owner_id, adminClient);
+      mondayToken = await getDecryptedMondayToken(org.owner_id, adminClient, mondayAccountId);
     } catch (e) {
       if (e instanceof MondayIntegrationError) {
         console.log("Monday.com not configured, proceeding without token");

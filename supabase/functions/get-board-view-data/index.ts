@@ -81,9 +81,21 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: "Access denied" }, 403);
     }
 
-    // ── Get owner's Monday token ──────────────────────────
+    // ── Resolve Monday account for this board ─────────────
     const ownerId = org!.owner_id;
-    const mondayToken = await getDecryptedMondayToken(ownerId, adminClient);
+
+    // Look up the board_config to find which Monday account this board belongs to
+    const { data: boardConfig } = await adminClient
+      .from("board_configs")
+      .select("monday_account_id")
+      .eq("monday_board_id", view.monday_board_id)
+      .eq("organization_id", view.organization_id)
+      .limit(1);
+
+    const mondayAccountId = boardConfig?.[0]?.monday_account_id || undefined;
+
+    // ── Get owner's Monday token ──────────────────────────
+    const mondayToken = await getDecryptedMondayToken(ownerId, adminClient, mondayAccountId);
 
     // ── Parse view configuration ──────────────────────────
     let selectedColumns: ViewColumn[] = [];

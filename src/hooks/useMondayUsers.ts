@@ -6,7 +6,7 @@ interface UseMondayUsersReturn {
   users: MondayUser[];
   isLoading: boolean;
   error: string | null;
-  fetchUsers: () => Promise<void>;
+  fetchUsers: (mondayAccountId?: string) => Promise<void>;
 }
 
 /**
@@ -18,12 +18,13 @@ export function useMondayUsers(): UseMondayUsersReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (mondayAccountId?: string) => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const data = await callEdgeFunction<{ users: MondayUser[] }>("get-monday-users");
+      const params = mondayAccountId ? { monday_account_id: mondayAccountId } : undefined;
+      const data = await callEdgeFunction<{ users: MondayUser[] }>("get-monday-users", params);
       setUsers(data.users || []);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to fetch Monday users";
