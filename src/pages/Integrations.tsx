@@ -1,18 +1,15 @@
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { useSearchParams } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus, Trash2, RefreshCw, Unplug } from "lucide-react";
 import { useIntegration } from "@/hooks/useIntegration";
 import { useMondayOAuth } from "@/hooks/useMondayOAuth";
 import { useDisconnectIntegration } from "@/hooks/useDisconnectIntegration";
-import { useBoardConfigs } from "@/hooks/useBoardConfigs";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Separator } from "@/components/ui/separator";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,74 +21,22 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import mondayLogo from "@/assets/monday-logo.png";
+import type { UserIntegration } from "@/types";
 
-function SlackIcon({ className }: { className?: string }) {
-  return (
-    <div className={`rounded-lg bg-muted ${className}`} />
-  );
-}
-
-function NotionIcon({ className }: { className?: string }) {
-  return (
-    <div className={`rounded-lg bg-muted ${className}`} />
-  );
-}
-
-function StepBadge({ step, disabled }: { step: number; disabled?: boolean }) {
-  return (
-    <div className={`
-      flex items-center justify-center w-6 h-6 rounded-full text-sm font-semibold shrink-0
-      ${disabled 
-        ? 'bg-muted text-muted-foreground' 
-        : 'bg-[#0073EA] text-white'}
-    `}>
-      {step}
-    </div>
-  );
+function getDisplayName(integration: UserIntegration): string {
+  return integration.account_name || integration.workspace_name || integration.monday_account_id;
 }
 
 export default function Integrations() {
-  const { integration, isLoading, isConnected, refetch } = useIntegration();
+  const { integrations, isLoading, refetch } = useIntegration();
   const { connectMonday, isConnecting } = useMondayOAuth();
-  const { disconnect, isDisconnecting } = useDisconnectIntegration();
-  const { configs } = useBoardConfigs();
+  const { disconnectById, deleteIntegration, isDisconnecting } = useDisconnectIntegration();
   const { toast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [installComplete, setInstallComplete] = useState(false);
-  const [showSwitchWarning, setShowSwitchWarning] = useState(false);
 
-  // Count configs that will be hidden when switching accounts
-  const linkedConfigCount = configs.filter(
-    (c) => c.monday_account_id === integration?.monday_account_id
-  ).length;
-
-  const handleDisconnect = async () => {
-    const success = await disconnect('monday');
-    if (success) {
-      refetch();
-    }
-  };
-
-  const handleSwitchAccountClick = () => {
-    if (linkedConfigCount > 0) {
-      setShowSwitchWarning(true);
-    } else {
-      handleSwitchAccount();
-    }
-  };
-
-  const handleSwitchAccount = async () => {
-    const success = await disconnect('monday');
-    if (success) {
-      setInstallComplete(false);
-      refetch();
-    }
-  };
-
-  const confirmSwitchAccount = async () => {
-    setShowSwitchWarning(false);
-    await handleSwitchAccount();
-  };
+  // Dialog state
+  const [disconnectTarget, setDisconnectTarget] = useState<UserIntegration | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<UserIntegration | null>(null);
 
   // Handle OAuth callback results from URL params
   useEffect(() => {
@@ -101,7 +46,7 @@ export default function Integrations() {
     if (success === 'true') {
       toast({
         title: "Success!",
-        description: "Monday.com connected successfully",
+        description: "Monday.com account connected successfully",
       });
       setSearchParams({});
       refetch();
@@ -117,9 +62,25 @@ export default function Integrations() {
     }
   }, [searchParams, setSearchParams, toast, refetch]);
 
-  const formattedDate = integration?.connected_at
-    ? format(new Date(integration.connected_at), "MMM d, yyyy")
-    : null;
+  const handleDisconnect = async () => {
+    if (!disconnectTarget) return;
+    const success = await disconnectById(disconnectTarget.id);
+    setDisconnectTarget(null);
+    if (success) {
+      refetch();
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    const success = await deleteIntegration(deleteTarget.id);
+    setDeleteTarget(null);
+    if (success) {
+      refetch();
+    }
+  };
+
+  const hasConnections = integrations.length > 0;
 
   return (
     <div className="space-y-8">
@@ -131,152 +92,142 @@ export default function Integrations() {
         </p>
       </div>
 
-      {/* Main Integration: Monday.com */}
+      {/* Monday.com Connections */}
       <div>
-        <h2 className="text-lg font-semibold text-foreground mb-4">Connected Services</h2>
-        
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <img src={mondayLogo} alt="Monday.com" className="h-8 w-8 shrink-0 object-contain" />
+            <h2 className="text-lg font-semibold text-foreground">Monday.com Connections</h2>
+          </div>
+          {hasConnections && (
+            <Button
+              onClick={connectMonday}
+              disabled={isConnecting}
+              size="sm"
+              className="bg-[#0073EA] hover:bg-[#0060c2] text-white"
+            >
+              {isConnecting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="mr-2 h-4 w-4" />
+              )}
+              Add Connection
+            </Button>
+          )}
+        </div>
+
         {isLoading ? (
           <Card className="max-w-2xl">
-            <CardHeader>
-              <Skeleton className="h-12 w-12" />
-              <Skeleton className="h-6 w-48 mt-2" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-9 w-full" />
+            <CardContent className="p-6 space-y-4">
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
             </CardContent>
           </Card>
-        ) : isConnected ? (
-          // Connected state - single card with switch account option
+        ) : !hasConnections ? (
+          /* Empty State */
           <Card className="max-w-2xl">
-            <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-              <img src={mondayLogo} alt="Monday.com" className="h-12 w-12 shrink-0 object-contain" />
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Monday.com</CardTitle>
-                  <Badge className="bg-primary text-primary-foreground">
-                    Connected
-                  </Badge>
-                </div>
-                <CardDescription>
-                  Your workspace is connected to MondayEase
-                </CardDescription>
+            <CardContent className="p-8 text-center space-y-4">
+              <img src={mondayLogo} alt="Monday.com" className="h-16 w-16 mx-auto object-contain opacity-50" />
+              <div>
+                <p className="text-foreground font-medium">No Monday.com accounts connected yet</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Connect your first account to start configuring boards.
+                </p>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {integration?.workspace_name && (
-                <p className="text-sm text-muted-foreground">
-                  <span className="font-medium">Workspace:</span> {integration.workspace_name}
-                </p>
-              )}
-              {formattedDate && (
-                <p className="text-sm text-muted-foreground">
-                  <span className="font-medium">Connected:</span> {formattedDate}
-                </p>
-              )}
-              <Button 
-                variant="destructive" 
-                className="w-full" 
-                onClick={handleDisconnect}
-                disabled={isDisconnecting}
+              <Button
+                onClick={connectMonday}
+                disabled={isConnecting}
+                className="bg-[#0073EA] hover:bg-[#0060c2] text-white"
               >
-                {isDisconnecting ? (
+                {isConnecting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Disconnecting...
+                    Connecting...
                   </>
                 ) : (
-                  'Disconnect'
+                  'Connect Monday.com Account'
                 )}
               </Button>
-              
-              <Separator />
-              
-              <button
-                type="button"
-                className="text-sm text-muted-foreground hover:text-primary hover:underline transition-colors w-full text-center"
-                onClick={handleSwitchAccountClick}
-                disabled={isDisconnecting}
-              >
-                Connect a different Monday.com account
-              </button>
             </CardContent>
           </Card>
         ) : (
-          // Not connected - guided step-by-step flow in single card
-          <Card className="max-w-2xl">
-            <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-              <img src={mondayLogo} alt="Monday.com" className="h-12 w-12 shrink-0 object-contain" />
-              <div className="flex-1 space-y-1">
-                <CardTitle>Monday.com Integration</CardTitle>
-                <CardDescription>
-                  Connect your Monday.com workspace to MondayEase
-                </CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Step 1 */}
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <StepBadge step={1} />
-                  <div className="flex-1 space-y-3">
-                    <h3 className="font-semibold">Step 1: Install MondayEase App</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Install the MondayEase app on your Monday.com workspace to allow secure access to your boards.
-                    </p>
-                    <Button
-                      variant="outline"
-                      className="border-[#0073EA] text-[#0073EA] hover:bg-[#0073EA]/10"
-                      onClick={() => window.open('https://auth.monday.com/oauth2/authorize?client_id=6f701c9989acf31a7af8a9c497016ce6&response_type=install', '_blank', 'noopener,noreferrer')}
-                    >
-                      Install on Monday.com
-                    </Button>
-                    <div className="flex items-center gap-2 pt-2">
-                      <Checkbox 
-                        id="install-complete" 
-                        checked={installComplete}
-                        onCheckedChange={(checked) => setInstallComplete(checked === true)}
-                      />
-                      <label 
-                        htmlFor="install-complete" 
-                        className="text-sm cursor-pointer select-none"
-                      >
-                        I have completed the installation
-                      </label>
+          /* Connection List */
+          <div className="space-y-3 max-w-2xl">
+            {integrations.map((integration) => {
+              const isConnected = integration.status === "connected";
+              const displayName = getDisplayName(integration);
+              const dateLabel = isConnected ? "Connected" : "Disconnected";
+              const dateValue = integration.connected_at
+                ? format(new Date(integration.connected_at), "MMM d, yyyy")
+                : null;
+
+              return (
+                <Card key={integration.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      {/* Left: Status + Info */}
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div
+                          className={`mt-1.5 h-2.5 w-2.5 rounded-full shrink-0 ${
+                            isConnected ? "bg-green-500" : "bg-red-500"
+                          }`}
+                        />
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground truncate">
+                            {displayName}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Account ID: {integration.monday_account_id}
+                          </p>
+                          {dateValue && (
+                            <p className="text-xs text-muted-foreground">
+                              {dateLabel}: {dateValue}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Right: Actions */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isConnected ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setDisconnectTarget(integration)}
+                            disabled={isDisconnecting}
+                          >
+                            <Unplug className="mr-1.5 h-3.5 w-3.5" />
+                            Disconnect
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={connectMonday}
+                              disabled={isConnecting}
+                            >
+                              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                              Reconnect
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+                              onClick={() => setDeleteTarget(integration)}
+                              disabled={isDisconnecting}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Step 2 */}
-              <div className={`space-y-4 transition-all duration-300 ${!installComplete ? 'opacity-50' : ''}`}>
-                <div className="flex items-start gap-3">
-                  <StepBadge step={2} disabled={!installComplete} />
-                  <div className="flex-1 space-y-3">
-                    <h3 className="font-semibold">Step 2: Connect Your Account</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Authorize MondayEase to access your Monday.com boards.
-                    </p>
-                    <Button
-                      onClick={connectMonday}
-                      disabled={!installComplete || isConnecting}
-                      className="bg-[#0073EA] hover:bg-[#0060c2] text-white disabled:opacity-50"
-                    >
-                      {isConnecting ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Connecting...
-                        </>
-                      ) : (
-                        'Connect Monday.com'
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         )}
       </div>
 
@@ -284,10 +235,9 @@ export default function Integrations() {
       <div>
         <h2 className="text-lg font-semibold text-muted-foreground mb-4">Coming Soon</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Slack */}
           <Card className="opacity-60">
             <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-              <SlackIcon className="h-12 w-12 shrink-0" />
+              <div className="h-12 w-12 shrink-0 rounded-lg bg-muted" />
               <div className="flex-1 space-y-1">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base">Slack</CardTitle>
@@ -300,10 +250,9 @@ export default function Integrations() {
             </CardHeader>
           </Card>
 
-          {/* Notion */}
           <Card className="opacity-60">
             <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-              <NotionIcon className="h-12 w-12 shrink-0" />
+              <div className="h-12 w-12 shrink-0 rounded-lg bg-muted" />
               <div className="flex-1 space-y-1">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base">Notion</CardTitle>
@@ -318,23 +267,67 @@ export default function Integrations() {
         </div>
       </div>
 
-      {/* Switch Account Warning Dialog */}
-      <AlertDialog open={showSwitchWarning} onOpenChange={setShowSwitchWarning}>
+      {/* Disconnect Confirmation Dialog */}
+      <AlertDialog
+        open={!!disconnectTarget}
+        onOpenChange={(open) => !open && setDisconnectTarget(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Switch Monday.com Account?</AlertDialogTitle>
+            <AlertDialogTitle>Disconnect {disconnectTarget ? getDisplayName(disconnectTarget) : ""}?</AlertDialogTitle>
             <AlertDialogDescription>
-              You have {linkedConfigCount} board configuration{linkedConfigCount !== 1 ? 's' : ''} linked 
-              to the current Monday.com account.
-              <br /><br />
-              If you connect a different account, these boards will no longer be 
-              accessible until you reconnect the original account.
+              Are you sure you want to disconnect this Monday.com account?
+              Board configurations will be preserved but data won't sync until you reconnect.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmSwitchAccount}>
-              Switch Account
+            <AlertDialogCancel disabled={isDisconnecting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDisconnect}
+              disabled={isDisconnecting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDisconnecting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Disconnecting...
+                </>
+              ) : (
+                "Disconnect"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {deleteTarget ? getDisplayName(deleteTarget) : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove this connection. Board configurations linked to this
+              account will be preserved but will appear as disconnected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDisconnecting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={isDisconnecting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDisconnecting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                "Remove"
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
