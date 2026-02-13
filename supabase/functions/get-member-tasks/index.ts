@@ -28,6 +28,7 @@ interface BoardAccessConfig {
   filter_column_id: string | null;
   visible_columns: string[];
   organization_id: string;
+  monday_account_id: string | null;
 }
 
 /**
@@ -206,7 +207,8 @@ Deno.serve(async (req: Request) => {
           filter_column_id,
           visible_columns,
           organization_id,
-          is_active
+          is_active,
+          monday_account_id
         )
       `)
       .eq("member_id", targetMembershipId);
@@ -228,9 +230,6 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ tasks: [], message: "No active boards assigned to this member" });
     }
 
-    // ── Get Monday.com token ──────────────────────────────
-    const mondayToken = await getDecryptedMondayToken(ownerId, adminClient);
-
     // ── Build access configs ──────────────────────────────
     const accessConfigs: BoardAccessConfig[] = activeAccess.map((access) => {
       const config = access.board_configs as any;
@@ -242,115 +241,137 @@ Deno.serve(async (req: Request) => {
         filter_column_id: config.filter_column_id,
         visible_columns: config.visible_columns || [],
         organization_id: config.organization_id,
+        monday_account_id: config.monday_account_id || null,
       };
     });
 
-    // ── Fetch & filter Monday items ───────────────────────
+    // ── Group boards by Monday account ──────────────────
+    const boardsByAccount = new Map<string, BoardAccessConfig[]>();
+    for (const config of accessConfigs) {
+      const key = config.monday_account_id || "__default__";
+      const existing = boardsByAccount.get(key) || [];
+      existing.push(config);
+      boardsByAccount.set(key, existing);
+    }
+
+    // ── Fetch & filter Monday items (per account) ───────
     const allTasks: MondayTask[] = [];
 
-    for (const config of accessConfigs) {
+    for (const [accountKey, configs] of boardsByAccount) {
+      // Get Monday.com token for this account
+      const mondayAccountId = accountKey === "__default__" ? undefined : accountKey;
+      let mondayToken: string;
       try {
-        const query = `
-          query {
-            boards(ids: [${config.monday_board_id}]) {
-              id
-              name
-              items_page(limit: 500) {
-                items {
-                  id
-                  name
-                  created_at
-                  updated_at
-                  column_values {
+        mondayToken = await getDecryptedMondayToken(ownerId, adminClient, mondayAccountId);
+      } catch (tokenError) {
+        console.error(`No token for account ${accountKey}, skipping ${configs.length} boards`);
+        continue;
+      }
+
+      for (const config of configs) {
+        try {
+          const query = `
+            query {
+              boards(ids: [${config.monday_board_id}]) {
+                id
+                name
+                items_page(limit: 500) {
+                  items {
                     id
-                    text
-                    type
-                    value
-                    ... on StatusValue {
-                      label
+                    name
+                    created_at
+                    updated_at
+                    column_values {
+                      id
+                      text
+                      type
+                      value
+                      ... on StatusValue {
+                        label
+                      }
                     }
                   }
                 }
-              }
-              columns {
-                id
-                title
-                type
-              }
-            }
-          }
-        `;
-
-        const data = await callMondayAPI<{
-          boards: Array<{
-            id: string;
-            name: string;
-            items_page: { items: any[] };
-            columns: Array<{ id: string; title: string; type: string }>;
-          }>;
-        }>(mondayToken, query);
-
-        const board = data.boards?.[0];
-        if (!board || !board.items_page?.items) continue;
-
-        const items = board.items_page.items;
-
-        // Build column id -> title/type map
-        const columnMap: Record<string, { title: string; type: string }> = {};
-        for (const col of board.columns || []) {
-          columnMap[col.id] = { title: col.title, type: col.type };
-        }
-
-        for (const item of items) {
-          // ── Filtering ──
-          if (config.filter_column_id && config.filter_value) {
-            const filterColumn = item.column_values.find(
-              (cv: any) => cv.id === config.filter_column_id
-            );
-
-            if (!filterColumn) continue;
-
-            const columnTexts = extractColumnTexts(filterColumn);
-            if (!matchesFilter(config.filter_value, columnTexts)) continue;
-          }
-
-          // ── Build column values for response ──
-          const columnValues: MondayColumnValue[] = item.column_values
-            .filter((cv: any) => {
-              if (!config.visible_columns || config.visible_columns.length === 0) return true;
-              return config.visible_columns.includes(cv.id);
-            })
-            .map((cv: any) => {
-              let parsedValue = null;
-              if (cv.value) {
-                try {
-                  parsedValue = typeof cv.value === "string" ? JSON.parse(cv.value) : cv.value;
-                } catch (_e) {
-                  parsedValue = cv.value;
+                columns {
+                  id
+                  title
+                  type
                 }
               }
-              return {
-                id: cv.id,
-                title: columnMap[cv.id]?.title || cv.id,
-                type: cv.type || columnMap[cv.id]?.type || "text",
-                text: cv.text || cv.label || null,
-                value: parsedValue,
-              };
-            });
+            }
+          `;
 
-          allTasks.push({
-            id: item.id,
-            name: item.name,
-            board_id: board.id,
-            board_name: config.board_name || board.name,
-            column_values: columnValues,
-            created_at: item.created_at,
-            updated_at: item.updated_at,
-          });
+          const data = await callMondayAPI<{
+            boards: Array<{
+              id: string;
+              name: string;
+              items_page: { items: any[] };
+              columns: Array<{ id: string; title: string; type: string }>;
+            }>;
+          }>(mondayToken, query);
+
+          const board = data.boards?.[0];
+          if (!board || !board.items_page?.items) continue;
+
+          const items = board.items_page.items;
+
+          // Build column id -> title/type map
+          const columnMap: Record<string, { title: string; type: string }> = {};
+          for (const col of board.columns || []) {
+            columnMap[col.id] = { title: col.title, type: col.type };
+          }
+
+          for (const item of items) {
+            // ── Filtering ──
+            if (config.filter_column_id && config.filter_value) {
+              const filterColumn = item.column_values.find(
+                (cv: any) => cv.id === config.filter_column_id
+              );
+
+              if (!filterColumn) continue;
+
+              const columnTexts = extractColumnTexts(filterColumn);
+              if (!matchesFilter(config.filter_value, columnTexts)) continue;
+            }
+
+            // ── Build column values for response ──
+            const columnValues: MondayColumnValue[] = item.column_values
+              .filter((cv: any) => {
+                if (!config.visible_columns || config.visible_columns.length === 0) return true;
+                return config.visible_columns.includes(cv.id);
+              })
+              .map((cv: any) => {
+                let parsedValue = null;
+                if (cv.value) {
+                  try {
+                    parsedValue = typeof cv.value === "string" ? JSON.parse(cv.value) : cv.value;
+                  } catch (_e) {
+                    parsedValue = cv.value;
+                  }
+                }
+                return {
+                  id: cv.id,
+                  title: columnMap[cv.id]?.title || cv.id,
+                  type: cv.type || columnMap[cv.id]?.type || "text",
+                  text: cv.text || cv.label || null,
+                  value: parsedValue,
+                };
+              });
+
+            allTasks.push({
+              id: item.id,
+              name: item.name,
+              board_id: board.id,
+              board_name: config.board_name || board.name,
+              column_values: columnValues,
+              created_at: item.created_at,
+              updated_at: item.updated_at,
+            });
+          }
+        } catch (boardError) {
+          console.error(`Error processing board ${config.monday_board_id}:`, boardError);
+          continue;
         }
-      } catch (boardError) {
-        console.error(`Error processing board ${config.monday_board_id}:`, boardError);
-        continue;
       }
     }
 

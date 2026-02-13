@@ -190,9 +190,9 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess, connectedIntegra
   // Fetch Monday users when entering team-members step with a person column
   useEffect(() => {
     if (currentStep === 'team-members' && isPersonColumn && mondayUsers.length === 0) {
-      fetchUsers();
+      fetchUsers(selectedAccountId || undefined);
     }
-  }, [currentStep, isPersonColumn, mondayUsers.length, fetchUsers]);
+  }, [currentStep, isPersonColumn, mondayUsers.length, fetchUsers, selectedAccountId]);
 
   // Fetch column values when filter column changes
   useEffect(() => {
@@ -226,6 +226,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess, connectedIntegra
               board_id: selectedBoard.id,
               column_id: filterColumnId,
               column_type: filterCol.type || null,
+              monday_account_id: selectedAccountId || null,
             }),
           }
         );
@@ -481,7 +482,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess, connectedIntegra
                   <p className="text-muted-foreground mb-4">
                     No boards found. Make sure Monday.com is connected.
                   </p>
-                  <Button variant="outline" onClick={() => fetchBoards()}>
+                  <Button variant="outline" onClick={() => fetchBoards(selectedAccountId || undefined)}>
                     Retry
                   </Button>
                 </div>

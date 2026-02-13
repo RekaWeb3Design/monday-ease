@@ -32,8 +32,12 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: "Only owners can access this endpoint" }, 403);
     }
 
-    // Get and decrypt the Monday.com token
-    const mondayToken = await getDecryptedMondayToken(user.id, adminClient);
+    // Get optional monday_account_id from query params
+    const url = new URL(req.url);
+    const mondayAccountId = url.searchParams.get("monday_account_id") || undefined;
+
+    // Get and decrypt the Monday.com token for the specified account
+    const mondayToken = await getDecryptedMondayToken(user.id, adminClient, mondayAccountId);
 
     // Fetch users from Monday.com
     const data = await callMondayAPI<{ users: MondayUser[] }>(
