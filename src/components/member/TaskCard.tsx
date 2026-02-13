@@ -1,3 +1,4 @@
+import { MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { MondayTask, MondayColumnValue } from "@/types";
@@ -69,6 +70,12 @@ export function TaskCard({ task, showBoardName = true }: TaskCardProps) {
           {showBoardName && (
             <Badge variant="outline" className="text-xs">
               {task.board_name}
+            </Badge>
+          )}
+          {task.account_name && (
+            <Badge variant="outline" className="text-xs font-normal text-muted-foreground border-muted">
+              <MapPin className="mr-1 h-3 w-3" />
+              {task.account_name}
             </Badge>
           )}
           {statusCol && statusText && (() => {

@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
-import { Settings, RefreshCw, ClipboardList, X } from "lucide-react";
+import { Settings, RefreshCw, ClipboardList, X, MapPin } from "lucide-react";
 import { useMemberTasksForMember } from "@/hooks/useMemberTasksForMember";
 import { TaskStats } from "@/components/member/TaskStats";
 import { format } from "date-fns";
@@ -294,10 +294,12 @@ export function MemberViewSheet({
             {/* Tabbed table view or single table */}
             {allBoards.length === 1 ? (
               <>
-                {hasMultipleAccounts && accountGroups[0]?.accountName && (
+                {accountGroups[0]?.accountName && (
                   <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
-                    <span className="text-sm font-medium text-muted-foreground">{accountGroups[0].accountName}</span>
+                    <Badge variant="outline" className="text-xs font-normal text-muted-foreground border-muted">
+                      <MapPin className="mr-1 h-3 w-3" />
+                      {accountGroups[0].accountName}
+                    </Badge>
                   </div>
                 )}
                 <BoardTable tasks={allBoards[0].tasks} />
@@ -323,15 +325,15 @@ export function MemberViewSheet({
                   )}
                 </TabsList>
                 {allBoards.map((group) => {
-                  const account = hasMultipleAccounts
-                    ? accountGroups.find((ag) => ag.boards.some((b) => b.boardId === group.boardId))
-                    : null;
+                  const account = accountGroups.find((ag) => ag.boards.some((b) => b.boardId === group.boardId));
                   return (
                     <TabsContent key={group.boardId} value={group.boardId}>
                       {account?.accountName && (
                         <div className="flex items-center gap-2 mb-3">
-                          <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
-                          <span className="text-sm font-medium text-muted-foreground">{account.accountName}</span>
+                          <Badge variant="outline" className="text-xs font-normal text-muted-foreground border-muted">
+                            <MapPin className="mr-1 h-3 w-3" />
+                            {account.accountName}
+                          </Badge>
                         </div>
                       )}
                       <BoardTable tasks={group.tasks} />
