@@ -1,25 +1,31 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import type { UserIntegration } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 
 interface UseIntegrationReturn {
+  /** First connected integration (backward compat) */
   integration: UserIntegration | null;
+  /** All Monday.com integrations for the current user */
+  integrations: UserIntegration[];
   isLoading: boolean;
+  /** True if at least one integration is connected */
   isConnected: boolean;
   refetch: () => Promise<void>;
+  /** Look up a specific integration by Monday account ID */
+  getIntegrationByAccountId: (accountId: string) => UserIntegration | undefined;
 }
 
 export function useIntegration(): UseIntegrationReturn {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [integration, setIntegration] = useState<UserIntegration | null>(null);
+  const [integrations, setIntegrations] = useState<UserIntegration[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchIntegration = useCallback(async () => {
+  const fetchIntegrations = useCallback(async () => {
     if (!user) {
-      setIntegration(null);
+      setIntegrations([]);
       setIsLoading(false);
       return;
     }
@@ -31,10 +37,10 @@ export function useIntegration(): UseIntegrationReturn {
         .select("*")
         .eq("user_id", user.id)
         .eq("integration_type", "monday")
-        .maybeSingle();
+        .order("connected_at", { ascending: false });
 
       if (error) {
-        console.error("Error fetching integration:", error);
+        console.error("Error fetching integrations:", error);
         toast({
           title: "Error",
           description: "Failed to fetch integration status",
@@ -43,7 +49,7 @@ export function useIntegration(): UseIntegrationReturn {
         return;
       }
 
-      setIntegration(data as UserIntegration | null);
+      setIntegrations((data as UserIntegration[]) || []);
     } catch (err) {
       console.error("Unexpected error:", err);
     } finally {
@@ -52,15 +58,30 @@ export function useIntegration(): UseIntegrationReturn {
   }, [user, toast]);
 
   useEffect(() => {
-    fetchIntegration();
-  }, [fetchIntegration]);
+    fetchIntegrations();
+  }, [fetchIntegrations]);
 
-  const isConnected = integration?.status === "connected";
+  // Backward compat: first connected integration, or first overall
+  const integration = useMemo(() => {
+    const connected = integrations.find((i) => i.status === "connected");
+    return connected || integrations[0] || null;
+  }, [integrations]);
+
+  const isConnected = integrations.some((i) => i.status === "connected");
+
+  const getIntegrationByAccountId = useCallback(
+    (accountId: string) => {
+      return integrations.find((i) => i.monday_account_id === accountId);
+    },
+    [integrations]
+  );
 
   return {
     integration,
+    integrations,
     isLoading,
     isConnected,
-    refetch: fetchIntegration,
+    refetch: fetchIntegrations,
+    getIntegrationByAccountId,
   };
 }
