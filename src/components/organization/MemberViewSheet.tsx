@@ -26,6 +26,13 @@ interface BoardGroup {
   tasks: MondayTask[];
 }
 
+interface AccountGroup {
+  accountId: string;
+  accountName: string;
+  boards: BoardGroup[];
+  taskCount: number;
+}
+
 const getBoardColumns = (boardTasks: MondayTask[]) => {
   if (boardTasks.length === 0) return [];
   const columnMap = new Map<string, { id: string; title: string; type: string }>();
@@ -122,36 +129,67 @@ export function MemberViewSheet({
 
   const displayName = member?.display_name || member?.email?.split("@")[0] || "Member";
 
-  const boardGroups: BoardGroup[] = useMemo(() => {
-    const groups: Record<string, { boardName: string; tasks: MondayTask[] }> = {};
+  // Group tasks by account, then by board within each account
+  const accountGroups: AccountGroup[] = useMemo(() => {
+    // First group tasks by board
+    const boardMap: Record<string, { boardName: string; accountId: string; accountName: string; tasks: MondayTask[] }> = {};
     for (const task of tasks) {
       const key = task.board_id;
-      if (!groups[key]) {
-        groups[key] = { boardName: task.board_name, tasks: [] };
+      if (!boardMap[key]) {
+        boardMap[key] = {
+          boardName: task.board_name,
+          accountId: task.monday_account_id || "__default__",
+          accountName: task.account_name || "",
+          tasks: [],
+        };
       }
-      groups[key].tasks.push(task);
+      boardMap[key].tasks.push(task);
     }
-    return Object.entries(groups).map(([boardId, data]) => ({
-      boardId,
-      boardName: data.boardName,
-      tasks: data.tasks,
+
+    // Then group boards by account
+    const accountMap: Record<string, { accountName: string; boards: BoardGroup[] }> = {};
+    for (const [boardId, data] of Object.entries(boardMap)) {
+      const accKey = data.accountId;
+      if (!accountMap[accKey]) {
+        accountMap[accKey] = { accountName: data.accountName, boards: [] };
+      }
+      accountMap[accKey].boards.push({
+        boardId,
+        boardName: data.boardName,
+        tasks: data.tasks,
+      });
+    }
+
+    return Object.entries(accountMap).map(([accountId, data]) => ({
+      accountId,
+      accountName: data.accountName,
+      boards: data.boards,
+      taskCount: data.boards.reduce((sum, b) => sum + b.tasks.length, 0),
     }));
   }, [tasks]);
+
+  const hasMultipleAccounts = accountGroups.length > 1;
+
+  // Flatten all boards for tab navigation
+  const allBoards = useMemo(
+    () => accountGroups.flatMap((ag) => ag.boards),
+    [accountGroups]
+  );
 
   const [activeTab, setActiveTab] = useState<string>("");
 
   useEffect(() => {
-    if (boardGroups.length > 0 && !activeTab) {
-      setActiveTab(boardGroups[0].boardId);
+    if (allBoards.length > 0 && !activeTab) {
+      setActiveTab(allBoards[0].boardId);
     }
-  }, [boardGroups, activeTab]);
+  }, [allBoards, activeTab]);
 
   // Reset tab when sheet closes
   useEffect(() => {
     if (!isOpen) setActiveTab("");
   }, [isOpen]);
 
-  const activeBoard = boardGroups.find((b) => b.boardId === activeTab);
+  const activeBoard = allBoards.find((b) => b.boardId === activeTab);
   const activeTasks = activeBoard?.tasks || tasks;
 
   return (
@@ -254,22 +292,52 @@ export function MemberViewSheet({
             <TaskStats tasks={activeTasks} />
 
             {/* Tabbed table view or single table */}
-            {boardGroups.length === 1 ? (
-              <BoardTable tasks={boardGroups[0].tasks} />
+            {allBoards.length === 1 ? (
+              <>
+                {hasMultipleAccounts && accountGroups[0]?.accountName && (
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
+                    <span className="text-sm font-medium text-muted-foreground">{accountGroups[0].accountName}</span>
+                  </div>
+                )}
+                <BoardTable tasks={allBoards[0].tasks} />
+              </>
             ) : (
               <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className="w-full flex-wrap h-auto gap-1">
-                  {boardGroups.map((group) => (
-                    <TabsTrigger key={group.boardId} value={group.boardId} className="text-xs">
-                      {group.boardName} ({group.tasks.length})
-                    </TabsTrigger>
-                  ))}
+                  {hasMultipleAccounts ? (
+                    accountGroups.map((account) => (
+                      account.boards.map((group) => (
+                        <TabsTrigger key={group.boardId} value={group.boardId} className="text-xs">
+                          <span className="truncate max-w-[120px]">{group.boardName}</span>
+                          <span className="ml-1 text-muted-foreground">({group.tasks.length})</span>
+                        </TabsTrigger>
+                      ))
+                    ))
+                  ) : (
+                    allBoards.map((group) => (
+                      <TabsTrigger key={group.boardId} value={group.boardId} className="text-xs">
+                        {group.boardName} ({group.tasks.length})
+                      </TabsTrigger>
+                    ))
+                  )}
                 </TabsList>
-                {boardGroups.map((group) => (
-                  <TabsContent key={group.boardId} value={group.boardId}>
-                    <BoardTable tasks={group.tasks} />
-                  </TabsContent>
-                ))}
+                {allBoards.map((group) => {
+                  const account = hasMultipleAccounts
+                    ? accountGroups.find((ag) => ag.boards.some((b) => b.boardId === group.boardId))
+                    : null;
+                  return (
+                    <TabsContent key={group.boardId} value={group.boardId}>
+                      {account?.accountName && (
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
+                          <span className="text-sm font-medium text-muted-foreground">{account.accountName}</span>
+                        </div>
+                      )}
+                      <BoardTable tasks={group.tasks} />
+                    </TabsContent>
+                  );
+                })}
               </Tabs>
             )}
           </div>

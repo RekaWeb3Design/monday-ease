@@ -15,6 +15,8 @@ export function clientItemsToTasks(
     board_name: board.boardName,
     created_at: "",
     updated_at: "",
+    monday_account_id: board.monday_account_id,
+    account_name: board.account_name,
     column_values: Object.entries(item.column_values).map(([id, cv]): MondayColumnValue => ({
       id,
       title: board.columns.find((c) => c.id === id)?.title || id,

@@ -27,16 +27,32 @@ export default function MemberDashboard() {
 
   const displayName = profile?.full_name || "there";
 
-  // Extract unique boards from tasks
+  // Extract unique boards from tasks, with account info
   const boards = useMemo(() => {
-    const boardMap = new Map<string, string>();
+    const boardMap = new Map<string, { name: string; accountId: string; accountName: string }>();
     tasks.forEach(task => {
       if (!boardMap.has(task.board_id)) {
-        boardMap.set(task.board_id, task.board_name);
+        boardMap.set(task.board_id, {
+          name: task.board_name,
+          accountId: task.monday_account_id || "__default__",
+          accountName: task.account_name || "",
+        });
       }
     });
-    return Array.from(boardMap.entries()).map(([id, name]) => ({ id, name }));
+    return Array.from(boardMap.entries()).map(([id, data]) => ({
+      id,
+      name: data.name,
+      accountId: data.accountId,
+      accountName: data.accountName,
+    }));
   }, [tasks]);
+
+  // Determine if we have multiple accounts
+  const accountIds = useMemo(() => {
+    const ids = new Set(boards.map(b => b.accountId));
+    return ids;
+  }, [boards]);
+  const hasMultipleAccounts = accountIds.size > 1;
 
   // Filter tasks based on active tab
   const filteredTasks = useMemo(() => {
@@ -241,22 +257,52 @@ export default function MemberDashboard() {
       {boards.length > 0 && (
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="h-auto flex-wrap justify-start gap-1 bg-transparent p-0">
-            <TabsTrigger 
-              value="all" 
+            <TabsTrigger
+              value="all"
               className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               <LayoutList className="mr-1.5 h-4 w-4" />
               All Tasks ({tasks.length})
             </TabsTrigger>
-            {boards.map((board) => (
-              <TabsTrigger 
-                key={board.id} 
-                value={board.id}
-                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-              >
-                {board.name} ({tasks.filter(t => t.board_id === board.id).length})
-              </TabsTrigger>
-            ))}
+            {hasMultipleAccounts ? (
+              // Group tabs by account with separators
+              Array.from(accountIds).map((accountId, accountIndex) => {
+                const accountBoards = boards.filter(b => b.accountId === accountId);
+                const accountName = accountBoards[0]?.accountName;
+                return (
+                  <div key={accountId} className="flex items-center gap-1">
+                    {accountIndex > 0 && (
+                      <div className="h-4 w-px bg-border mx-1" />
+                    )}
+                    {accountName && (
+                      <span className="text-xs text-muted-foreground px-1 flex items-center gap-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />
+                        {accountName}:
+                      </span>
+                    )}
+                    {accountBoards.map((board) => (
+                      <TabsTrigger
+                        key={board.id}
+                        value={board.id}
+                        className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                      >
+                        {board.name} ({tasks.filter(t => t.board_id === board.id).length})
+                      </TabsTrigger>
+                    ))}
+                  </div>
+                );
+              })
+            ) : (
+              boards.map((board) => (
+                <TabsTrigger
+                  key={board.id}
+                  value={board.id}
+                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                >
+                  {board.name} ({tasks.filter(t => t.board_id === board.id).length})
+                </TabsTrigger>
+              ))
+            )}
           </TabsList>
         </Tabs>
       )}

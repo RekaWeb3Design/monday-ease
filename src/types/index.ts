@@ -161,6 +161,8 @@ export interface MondayTask {
   column_values: MondayColumnValue[];
   created_at: string;
   updated_at: string;
+  monday_account_id?: string;
+  account_name?: string;
 }
 
 // Column value from Monday.com (for member dashboard)
@@ -333,6 +335,8 @@ export interface ClientDashboardBoard {
   boardName: string;
   columns: { id: string; title: string; type: string }[];
   items: ClientDashboardItem[];
+  monday_account_id?: string;
+  account_name?: string;
 }
 
 export interface ClientDashboardItem {
