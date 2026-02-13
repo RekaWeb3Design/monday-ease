@@ -1,12 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
-import { Lock, LogOut, Loader2, AlertCircle, LayoutDashboard, Search, X, ChevronUp, ChevronDown } from "lucide-react";
+import { Lock, LogOut, Loader2, AlertCircle, LayoutDashboard, Search, X, ChevronUp, ChevronDown, LayoutGrid, List, BarChart3, Columns3, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -18,8 +20,16 @@ import {
 import { toast } from "sonner";
 import mondayeaseLogo from "@/assets/mondayease_logo.png";
 import type { ClientAuthResponse, ClientDashboardData } from "@/types";
+import { clientItemsToTasks } from "@/lib/clientTaskAdapter";
+import { TaskCard } from "@/components/member/TaskCard";
+import { TaskListView } from "@/components/member/TaskListView";
+import { TaskChartsView } from "@/components/member/TaskChartsView";
+import { TaskKanbanView } from "@/components/member/TaskKanbanView";
+import { TaskTimelineView } from "@/components/member/TaskTimelineView";
 
 const SUPABASE_FUNCTIONS_URL = "https://yqjugovqhvxoxvrceqqp.supabase.co/functions/v1";
+
+type ClientViewMode = "table" | "grid" | "list" | "charts" | "kanban" | "timeline";
 
 // Status color fallback map for consistent coloring
 const STATUS_COLORS: Record<string, string> = {
@@ -60,10 +70,11 @@ export default function ClientDashboard() {
   const [dashboardData, setDashboardData] = useState<ClientDashboardData | null>(null);
   const [loadingData, setLoadingData] = useState(false);
 
-  // Search and sort state
+  // Search, sort, and view mode state
   const [searchQuery, setSearchQuery] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [viewMode, setViewMode] = useState<ClientViewMode>("table");
 
   const storageKey = `mondayease_client_${slug}`;
 
@@ -76,7 +87,6 @@ export default function ClientDashboard() {
           await fetchDashboardData(token);
           setIsAuthenticated(true);
         } catch (err) {
-          // Token expired or invalid
           localStorage.removeItem(storageKey);
         }
       }
@@ -104,12 +114,9 @@ export default function ClientDashboard() {
         throw new Error(data.error || "Invalid password");
       }
 
-      // Store token and client info
       localStorage.setItem(storageKey, data.token);
       setClientInfo(data.client);
       setIsAuthenticated(true);
-
-      // Fetch dashboard data
       await fetchDashboardData(data.token);
     } catch (err: any) {
       setError(err.message || "Authentication failed");
@@ -140,7 +147,6 @@ export default function ClientDashboard() {
         throw new Error(data.error || "Failed to load dashboard");
       }
 
-      // Ensure boards is always an array
       const sanitizedData: ClientDashboardData = {
         ...data,
         companyName: data.companyName || "",
@@ -263,18 +269,16 @@ export default function ClientDashboard() {
 
   const renderCellValue = (value: any, type: string) => {
     if (value === undefined || value === null) {
-      return <span className="text-gray-300">—</span>;
+      return <span className="text-muted-foreground">—</span>;
     }
 
-    // Handle status/color columns
     const statusBadge = getStatusBadge(value, type);
     if (statusBadge) return statusBadge;
 
-    // Handle text
     const text = value.text || value.label || "";
-    if (!text) return <span className="text-gray-300">—</span>;
+    if (!text) return <span className="text-muted-foreground">—</span>;
 
-    return <span className="text-gray-700 text-sm">{text}</span>;
+    return <span className="text-foreground/80 text-sm">{text}</span>;
   };
 
   // Loading state
@@ -286,11 +290,10 @@ export default function ClientDashboard() {
     );
   }
 
-  // Password entry state - shown when NOT authenticated
+  // Password entry state
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
-        {/* Centered content */}
         <div className="flex-1 flex items-center justify-center p-4">
           <Card className="w-full max-w-sm">
             <CardHeader className="text-center">
@@ -345,7 +348,6 @@ export default function ClientDashboard() {
           </Card>
         </div>
 
-        {/* Footer */}
         <footer className="py-4 text-center text-sm text-muted-foreground">
           Powered by MondayEase
         </footer>
@@ -399,7 +401,6 @@ export default function ClientDashboard() {
             </CardContent>
           </Card>
         ) : boards.length === 1 ? (
-          // Single board - no tabs needed
           <BoardTable
             board={boards[0]}
             renderCellValue={renderCellValue}
@@ -410,15 +411,16 @@ export default function ClientDashboard() {
             handleSort={handleSort}
             getFilteredItems={getFilteredItems}
             getSortedItems={getSortedItems}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
           />
         ) : (
-          // Multiple boards - show tabs with custom styling
           <Tabs
             defaultValue={boards[0]?.boardId ?? "default"}
             className="w-full"
             onValueChange={handleTabChange}
           >
-            <div className="border-b border-gray-200 mb-6">
+            <div className="border-b border-border mb-6">
               <TabsList className="bg-transparent h-auto p-0 space-x-6">
                 {boards.map((board) => (
                   <TabsTrigger
@@ -427,7 +429,7 @@ export default function ClientDashboard() {
                     className="bg-transparent data-[state=active]:bg-transparent data-[state=active]:shadow-none 
                                border-b-2 border-transparent data-[state=active]:border-primary 
                                rounded-none px-0 pb-3 pt-0
-                               text-gray-500 hover:text-gray-700 data-[state=active]:text-gray-900 
+                               text-muted-foreground hover:text-foreground data-[state=active]:text-foreground 
                                data-[state=active]:font-semibold font-medium text-sm"
                   >
                     {board?.boardName ?? "Untitled Board"}
@@ -447,6 +449,8 @@ export default function ClientDashboard() {
                   handleSort={handleSort}
                   getFilteredItems={getFilteredItems}
                   getSortedItems={getSortedItems}
+                  viewMode={viewMode}
+                  setViewMode={setViewMode}
                 />
               </TabsContent>
             ))}
@@ -473,6 +477,8 @@ interface BoardTableProps {
   handleSort: (columnId: string) => void;
   getFilteredItems: (items: ClientDashboardData["boards"][number]["items"]) => ClientDashboardData["boards"][number]["items"];
   getSortedItems: (items: ClientDashboardData["boards"][number]["items"]) => ClientDashboardData["boards"][number]["items"];
+  viewMode: ClientViewMode;
+  setViewMode: (mode: ClientViewMode) => void;
 }
 
 function BoardTable({
@@ -485,8 +491,28 @@ function BoardTable({
   handleSort,
   getFilteredItems,
   getSortedItems,
+  viewMode,
+  setViewMode,
 }: BoardTableProps) {
-  // Early return if board is malformed
+  const columns = board?.columns ?? [];
+  const items = board?.items ?? [];
+  const boardName = board?.boardName ?? "Untitled Board";
+  const hasNameColumn = columns.some((col) => col.id === "name");
+
+  const filteredItems = getFilteredItems(items);
+  const sortedItems = getSortedItems(filteredItems);
+
+  // Convert to MondayTask format for alternate views
+  const tasksForViews = useMemo(
+    () => board ? clientItemsToTasks(sortedItems, board) : [],
+    [sortedItems, board]
+  );
+
+  // Extract columns for list view
+  const allColumns = useMemo(() => {
+    return columns.map((c) => ({ id: c.id, title: c.title, type: c.type }));
+  }, [columns]);
+
   if (!board) {
     return (
       <Card className="border-dashed shadow-sm">
@@ -497,23 +523,37 @@ function BoardTable({
     );
   }
 
-  // Safe extraction with fallbacks
-  const columns = board.columns ?? [];
-  const items = board.items ?? [];
-  const boardName = board.boardName ?? "Untitled Board";
+  // View mode toggle
+  const ViewToggle = () => (
+    <ToggleGroup
+      type="single"
+      value={viewMode}
+      onValueChange={(v) => v && setViewMode(v as ClientViewMode)}
+      className="border rounded-md"
+    >
+      <ToggleGroupItem value="table" aria-label="Table view" size="sm" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+        <List className="h-4 w-4" />
+      </ToggleGroupItem>
+      <ToggleGroupItem value="grid" aria-label="Grid view" size="sm" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+        <LayoutGrid className="h-4 w-4" />
+      </ToggleGroupItem>
+      <ToggleGroupItem value="charts" aria-label="Charts view" size="sm" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+        <BarChart3 className="h-4 w-4" />
+      </ToggleGroupItem>
+      <ToggleGroupItem value="kanban" aria-label="Kanban view" size="sm" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+        <Columns3 className="h-4 w-4" />
+      </ToggleGroupItem>
+      <ToggleGroupItem value="timeline" aria-label="Timeline view" size="sm" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+        <CalendarDays className="h-4 w-4" />
+      </ToggleGroupItem>
+    </ToggleGroup>
+  );
 
-  // Check if "name" is in visible columns (from board config)
-  const hasNameColumn = columns.some((col) => col.id === "name");
-
-  // Apply filter and sort
-  const filteredItems = getFilteredItems(items);
-  const sortedItems = getSortedItems(filteredItems);
-
-  // Search bar component (reused in both empty and filled states)
+  // Search bar with view toggle
   const SearchBar = () => (
     <div className="px-4 pb-4">
-      <div className="flex items-center gap-3">
-        <div className="relative w-full max-w-sm">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+        <div className="relative flex-1 w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search items..."
@@ -535,11 +575,14 @@ function BoardTable({
             Showing {sortedItems.length} of {items.length}
           </span>
         )}
+        <div className="sm:ml-auto">
+          <ViewToggle />
+        </div>
       </div>
     </div>
   );
 
-  // Empty state (no items at all)
+  // Empty state
   if (!items.length) {
     return (
       <Card className="border-dashed shadow-sm">
@@ -555,7 +598,7 @@ function BoardTable({
     return (
       <Card className="shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold text-gray-800">{boardName}</CardTitle>
+          <CardTitle className="text-lg font-semibold">{boardName}</CardTitle>
         </CardHeader>
         <SearchBar />
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
@@ -567,21 +610,61 @@ function BoardTable({
     );
   }
 
+  // Non-table views use member components
+  if (viewMode !== "table") {
+    return (
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg font-semibold">{boardName}</CardTitle>
+        </CardHeader>
+        <SearchBar />
+        <CardContent>
+          {viewMode === "grid" && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {tasksForViews.map((task) => (
+                <TaskCard key={task.id} task={task} showBoardName={false} />
+              ))}
+            </div>
+          )}
+          {viewMode === "list" && (
+            <TaskListView
+              tasks={tasksForViews}
+              showBoardName={false}
+              allColumns={allColumns}
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+            />
+          )}
+          {viewMode === "charts" && (
+            <TaskChartsView tasks={tasksForViews} />
+          )}
+          {viewMode === "kanban" && (
+            <TaskKanbanView tasks={tasksForViews} showBoardName={false} />
+          )}
+          {viewMode === "timeline" && (
+            <TaskTimelineView tasks={tasksForViews} showBoardName={false} />
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Table view (original)
   return (
     <Card className="shadow-sm">
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg font-semibold text-gray-800">{boardName}</CardTitle>
+        <CardTitle className="text-lg font-semibold">{boardName}</CardTitle>
       </CardHeader>
       <SearchBar />
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-gray-50 border-b border-gray-100">
-                {/* Only show Item column if "name" is NOT in visible columns */}
+              <TableRow className="bg-muted/50 border-b">
                 {!hasNameColumn && (
                   <TableHead
-                    className="font-semibold text-gray-600 uppercase text-xs tracking-wider py-3 px-4 cursor-pointer hover:bg-muted/50 select-none"
+                    className="font-semibold text-muted-foreground uppercase text-xs tracking-wider py-3 px-4 cursor-pointer hover:bg-muted/80 select-none"
                     onClick={() => handleSort("name")}
                   >
                     <div className="flex items-center gap-1">
@@ -597,7 +680,7 @@ function BoardTable({
                 {columns.map((col) => (
                   <TableHead
                     key={col?.id ?? Math.random()}
-                    className="font-semibold text-gray-600 uppercase text-xs tracking-wider py-3 px-4 cursor-pointer hover:bg-muted/50 select-none"
+                    className="font-semibold text-muted-foreground uppercase text-xs tracking-wider py-3 px-4 cursor-pointer hover:bg-muted/80 select-none"
                     onClick={() => handleSort(col.id)}
                   >
                     <div className="flex items-center gap-1">
@@ -616,19 +699,18 @@ function BoardTable({
               {sortedItems.map((item, index) => (
                 <TableRow
                   key={item?.id ?? Math.random()}
-                  className={`border-b border-gray-100 hover:bg-gray-50 transition-colors
-                    ${index % 2 === 1 ? "bg-gray-50/50" : "bg-white"}`}
+                  className={`border-b hover:bg-muted/30 transition-colors
+                    ${index % 2 === 1 ? "bg-muted/20" : "bg-background"}`}
                 >
-                  {/* Only show Item cell if "name" is NOT in visible columns */}
                   {!hasNameColumn && (
-                    <TableCell className="font-medium text-gray-900 py-3 px-4">
+                    <TableCell className="font-medium py-3 px-4">
                       {item?.name ?? "—"}
                     </TableCell>
                   )}
                   {columns.map((col) => (
                     <TableCell
                       key={col?.id ?? Math.random()}
-                      className={`py-3 px-4 ${col.id === "name" ? "font-medium text-gray-900" : ""}`}
+                      className={`py-3 px-4 ${col.id === "name" ? "font-medium" : ""}`}
                     >
                       {col.id === "name"
                         ? item?.name ?? "—"
