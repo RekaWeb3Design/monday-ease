@@ -481,7 +481,7 @@ export function AddBoardDialog({ open, onOpenChange, onSuccess, connectedIntegra
                   <p className="text-muted-foreground mb-4">
                     No boards found. Make sure Monday.com is connected.
                   </p>
-                  <Button variant="outline" onClick={fetchBoards}>
+                  <Button variant="outline" onClick={() => fetchBoards()}>
                     Retry
                   </Button>
                 </div>
